@@ -2,7 +2,7 @@
 
 import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
-import { InsightsView, type AiSummaryData } from "@/components/InsightsView";
+import { ThemesList, type CrownData } from "@/components/Finale";
 import { postJson, usePolling } from "@/components/usePolling";
 import { QTYPES, defaultQuestion, type QType } from "@/lib/questions";
 
@@ -29,6 +29,9 @@ interface Block {
   id: string;
   title: string;
   position: number;
+  revealReady: boolean;
+  revealAi: boolean;
+  hasPair: boolean;
   questions: Q[];
 }
 interface QaItem {
@@ -51,7 +54,8 @@ interface EventState {
     qaEnabled: boolean;
     qaModerated: boolean;
     resultsPublished: boolean;
-    aiSummary: AiSummaryData | null;
+    aiSummary: unknown;
+    teaserBlockId: string | null;
   };
   joinUrl: string;
   participants: number;
@@ -130,13 +134,12 @@ function LiveTab({ data, refresh }: { data: EventState; refresh: () => Promise<v
   const ev = data.event;
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
-  const [compareBlock, setCompareBlock] = useState<string>(ev.screenBlockId ?? data.blocks[0]?.id ?? "");
 
-  async function control(body: Record<string, unknown>) {
+  async function run(fn: () => Promise<unknown>) {
     setBusy(true);
     setErr(null);
     try {
-      await postJson(`/api/admin/events/${ev.id}/control`, body);
+      await fn();
       await refresh();
     } catch (e) {
       setErr(e instanceof Error ? e.message : "Errore");
@@ -144,6 +147,9 @@ function LiveTab({ data, refresh }: { data: EventState; refresh: () => Promise<v
       setBusy(false);
     }
   }
+  const control = (body: Record<string, unknown>) => run(() => postJson(`/api/admin/events/${ev.id}/control`, body));
+  const reveal = (blockId: string, refreshReveal = false) =>
+    run(() => postJson(`/api/admin/events/${ev.id}/blocks/${blockId}/reveal`, { show: true, refresh: refreshReveal }));
 
   // sequenza di conduzione: tutte le domande, blocco per blocco
   const sequence = data.blocks.flatMap((b) => b.questions.map((q, i) => ({ q, b, label: `${b.title} · ${qName(q, i)}` })));
@@ -151,12 +157,16 @@ function LiveTab({ data, refresh }: { data: EventState; refresh: () => Promise<v
   const current = idx >= 0 ? sequence[idx] : null;
   const next = idx >= 0 ? sequence[idx + 1] : sequence.find((s) => s.q.respondents === 0);
 
+  // blocco appena chiuso con il prima/dopo da rivelare
+  const teaserBlock = data.blocks.find((b) => b.id === ev.teaserBlockId);
+  const teaserShown = ev.screenMode === "reveal" && ev.screenBlockId === ev.teaserBlockId;
+  const pendingReveal = !current && teaserBlock && !teaserShown ? teaserBlock : null;
+
   const modes: { id: string; label: string }[] = [
     { id: "live", label: "Domanda aperta" },
     { id: "join", label: "QR grande" },
-    { id: "compare", label: "Confronto parole" },
-    { id: "final", label: "Riepilogo finale" },
-    { id: "insights", label: "Sintesi" },
+    { id: "strips", label: "Risultato per argomento" },
+    { id: "crown", label: "Convergenza" },
     ...(ev.qaEnabled ? [{ id: "qa", label: "Domande dal pubblico" }] : []),
   ];
 
@@ -178,15 +188,25 @@ function LiveTab({ data, refresh }: { data: EventState; refresh: () => Promise<v
             </a>
           </div>
         </div>
-        <div className="stack" style={{ minWidth: 260 }}>
+        <div className="stack" style={{ minWidth: 280 }}>
           {current ? (
             <div className="alert ok">
               Aperta: <b>{current.label}</b>
+            </div>
+          ) : pendingReveal ? (
+            <div className="alert ok">
+              Chiuso <b>{pendingReveal.title}</b>: i telefoni mostrano il messaggio di suspense.{" "}
+              {pendingReveal.revealReady ? "Il prima/dopo è pronto." : "Sto preparando il prima/dopo…"}
             </div>
           ) : (
             <div className="alert warn">Nessuna domanda aperta: il pubblico è in attesa.</div>
           )}
           <div className="row">
+            {pendingReveal && (
+              <button className="btn primary" disabled={busy} onClick={() => reveal(pendingReveal.id)}>
+                ✨ Rivela: {pendingReveal.title}
+              </button>
+            )}
             {current?.q.type === "quiz" && (
               <button
                 className={`btn ${current.q.revealed ? "" : "primary"}`}
@@ -197,7 +217,7 @@ function LiveTab({ data, refresh }: { data: EventState; refresh: () => Promise<v
               </button>
             )}
             {next && (
-              <button className="btn primary" disabled={busy} onClick={() => control({ activeQuestionId: next.q.id })}>
+              <button className={`btn ${pendingReveal ? "" : "primary"}`} disabled={busy} onClick={() => control({ activeQuestionId: next.q.id })}>
                 Apri: {next.label} →
               </button>
             )}
@@ -214,7 +234,7 @@ function LiveTab({ data, refresh }: { data: EventState; refresh: () => Promise<v
       <div className="stack" style={{ gap: 8 }}>
         {data.blocks.map((b, bi) => {
           const isCurrent = b.questions.some((q) => q.id === ev.activeQuestionId);
-          const wordsCount = b.questions.filter((q) => q.type === "words").length;
+          const onScreen = ev.screenMode === "reveal" && ev.screenBlockId === b.id;
           return (
             <div key={b.id} className={`block-row ${isCurrent ? "current" : ""}`}>
               <div className="block-num">{bi + 1}</div>
@@ -248,14 +268,15 @@ function LiveTab({ data, refresh }: { data: EventState; refresh: () => Promise<v
                     </button>
                   );
                 })}
-                {wordsCount > 0 && (
+                {b.hasPair && (
                   <button
-                    className="btn sm ghost"
+                    className={`btn phase-btn ${onScreen ? "on" : ""}`}
                     disabled={busy}
-                    onClick={() => control({ screenMode: "compare", screenBlockId: b.id })}
-                    title="Mostra sul proiettore il confronto tra la prima e l'ultima domanda a parole del blocco"
+                    onClick={() => reveal(b.id, !b.revealReady || onScreen)}
+                    title={onScreen ? "Ricalcola con le ultime risposte" : "Mostra sul proiettore il prima/dopo di questo blocco"}
                   >
-                    Confronta
+                    ✨ Rivela
+                    <small>{onScreen ? "sullo schermo · ricalcola" : b.revealReady ? `pronto${b.revealAi ? " · AI" : ""}` : "da preparare"}</small>
                   </button>
                 )}
               </div>
@@ -263,68 +284,46 @@ function LiveTab({ data, refresh }: { data: EventState; refresh: () => Promise<v
           );
         })}
         {data.blocks.length === 0 && <p className="muted">Nessun blocco: aggiungili in Impostazioni e domande.</p>}
-        <p className="tiny muted">★ = domanda inclusa nel riepilogo finale.</p>
+        <p className="tiny muted">
+          ★ = domanda nel riepilogo finale. Chiudendo l&apos;ultima domanda a parole di un blocco (aprendo la successiva o con
+          Chiudi), l&apos;app prepara il prima/dopo e manda ai telefoni il messaggio di suspense; tu scegli quando premere{" "}
+          <b>Rivela</b>.
+        </p>
       </div>
 
       <div className="card stack">
         <h2>Schermo del proiettore</h2>
         <div className="row">
           {modes.map((m) => (
-            <button
-              key={m.id}
-              className={`btn sm ${ev.screenMode === m.id ? "on" : ""}`}
-              disabled={busy}
-              onClick={() => control(m.id === "compare" ? { screenMode: "compare", screenBlockId: compareBlock } : { screenMode: m.id })}
-            >
+            <button key={m.id} className={`btn sm ${ev.screenMode === m.id ? "on" : ""}`} disabled={busy} onClick={() => control({ screenMode: m.id })}>
               {m.label}
             </button>
           ))}
         </div>
-        <label className="field" style={{ maxWidth: 320 }}>
-          <span>Blocco da confrontare</span>
-          <select
-            value={compareBlock}
-            onChange={(e) => {
-              setCompareBlock(e.target.value);
-              if (ev.screenMode === "compare") void control({ screenMode: "compare", screenBlockId: e.target.value });
-            }}
-          >
-            {data.blocks.map((b) => (
-              <option key={b.id} value={b.id}>
-                {b.title}
-              </option>
-            ))}
-          </select>
-        </label>
         <p className="tiny muted">
-          Aprendo una domanda lo schermo torna da solo sulla domanda aperta. Il confronto mette a fianco la prima e l&apos;ultima
-          domanda a parole del blocco. Apri lo schermo proiettore in una finestra a parte, a tutto schermo (F11).
+          Aprendo una domanda lo schermo torna da solo sulla domanda aperta. Apri lo schermo proiettore in una finestra a parte, a
+          tutto schermo (F11).
         </p>
       </div>
 
-      <AiSummaryCard eventId={ev.id} summary={ev.aiSummary} refresh={refresh} onShow={() => control({ screenMode: "insights" })} />
+      <ConvergenceCard eventId={ev.id} summary={ev.aiSummary} refresh={refresh} onShow={() => control({ screenMode: "crown" })} />
 
       <div className="card spread">
         <div>
           <b>Risultati pubblici</b>
           <div className="small muted">
             {ev.resultsPublished
-              ? "Pubblicati: il pubblico vede il pulsante Risultati sul telefono."
-              : "Non ancora pubblicati: solo gli operatori vedono la pagina risultati."}
+              ? "Pubblicati: tutti i telefoni mostrano solo i risultati. Domande e Q&A sono chiusi."
+              : "Pubblicando, chiunque apra il QR vede solo i risultati finali: le domande si chiudono."}
           </div>
         </div>
         <button
           className={`btn ${ev.resultsPublished ? "" : "primary"}`}
           disabled={busy}
-          onClick={async () => {
-            setBusy(true);
-            try {
-              await postJson(`/api/admin/events/${ev.id}`, { resultsPublished: !ev.resultsPublished }, "PATCH");
-              await refresh();
-            } finally {
-              setBusy(false);
-            }
-          }}
+          onClick={() =>
+            (ev.resultsPublished || confirm("Pubblicare i risultati? I telefoni mostreranno solo i risultati e non si potrà più rispondere.")) &&
+            run(() => postJson(`/api/admin/events/${ev.id}`, { resultsPublished: !ev.resultsPublished }, "PATCH"))
+          }
         >
           {ev.resultsPublished ? "Ritira i risultati" : "Pubblica i risultati"}
         </button>
@@ -335,19 +334,20 @@ function LiveTab({ data, refresh }: { data: EventState; refresh: () => Promise<v
 
 /* ------------------------------------------------------------------ */
 
-function AiSummaryCard({
+function ConvergenceCard({
   eventId,
   summary,
   refresh,
   onShow,
 }: {
   eventId: string;
-  summary: AiSummaryData | null;
+  summary: unknown;
   refresh: () => Promise<void>;
   onShow: () => Promise<void>;
 }) {
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
+  const conv = summary && (summary as { version?: number }).version === 2 ? (summary as CrownData & { model?: string }) : null;
 
   async function run(fn: () => Promise<unknown>) {
     setBusy(true);
@@ -366,45 +366,43 @@ function AiSummaryCard({
     <div className="card stack">
       <div className="spread">
         <div>
-          <h2 style={{ margin: 0 }}>Sintesi AI</h2>
+          <h2 style={{ margin: 0 }}>Convergenza finale</h2>
           <div className="small muted">
-            Parole chiave per sezione e le 5 principali dell&apos;evento, scelte dall&apos;AI unendo i sinonimi. Compare in cima ai
-            Risultati e nella schermata “Sintesi” del proiettore.
+            Le 9 parole più forti dei podi di fine blocco convergono, animate, in 3 macro-temi scelti dall&apos;AI. Preparala
+            quando tutti i blocchi sono chiusi.
           </div>
         </div>
         <div className="row">
-          <button className={`btn ${summary ? "" : "primary"}`} disabled={busy} onClick={() => run(() => postJson(`/api/admin/events/${eventId}/ai-summary`))}>
-            {busy ? "Generazione…" : summary ? "Rigenera" : "✨ Genera sintesi AI"}
+          <button className={`btn ${conv ? "" : "primary"}`} disabled={busy} onClick={() => run(() => postJson(`/api/admin/events/${eventId}/convergence`))}>
+            {busy ? "Preparazione…" : conv ? "Rigenera" : "✨ Prepara convergenza"}
           </button>
-          {summary && (
-            <>
-              <button className="btn" disabled={busy} onClick={() => void onShow()}>
-                Mostra sul proiettore
-              </button>
-              <button
-                className="btn ghost danger"
-                disabled={busy}
-                onClick={() => confirm("Eliminare la sintesi AI?") && run(() => postJson(`/api/admin/events/${eventId}/ai-summary`, undefined, "DELETE"))}
-              >
-                Elimina
-              </button>
-            </>
+          <button className="btn" disabled={busy} onClick={() => void onShow()}>
+            Mostra sul proiettore
+          </button>
+          {conv && (
+            <button
+              className="btn ghost danger"
+              disabled={busy}
+              onClick={() => confirm("Eliminare la convergenza preparata?") && run(() => postJson(`/api/admin/events/${eventId}/convergence`, undefined, "DELETE"))}
+            >
+              Elimina
+            </button>
           )}
         </div>
       </div>
       {err && <div className="alert error">{err}</div>}
-      {summary ? (
+      {conv ? (
         <>
-          <InsightsView ai={summary} top={[]} />
+          <ThemesList data={conv} />
           <p className="tiny muted">
-            Generata il {new Date(summary.generatedAt).toLocaleString("it-IT")} con {summary.model}. Se arrivano nuove risposte,
-            premi Rigenera per aggiornarla.
+            Preparata il {conv.generatedAt ? new Date(conv.generatedAt).toLocaleString("it-IT") : "—"}. Se arrivano nuove risposte,
+            premi Rigenera.
           </p>
         </>
       ) : (
         <p className="small muted">
-          Usa la tua chiave AI (Impostazioni AI). Senza sintesi, Risultati e proiettore mostrano le 5 parole più scritte calcolate
-          dai conteggi.
+          Senza preparazione, la schermata Convergenza mostra comunque le 9 parole più forti, che convergono nel titolo
+          dell&apos;evento.
         </p>
       )}
     </div>

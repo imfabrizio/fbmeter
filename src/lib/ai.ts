@@ -126,96 +126,99 @@ export async function testKey(provider: AiProvider, model: string, apiKey: strin
 }
 
 /* ------------------------------------------------------------------ */
-/* Sintesi dell'evento                                                 */
+/* Rivelazione prima/dopo e convergenza finale                         */
 /* ------------------------------------------------------------------ */
 
-export interface SummaryInput {
-  eventTitle: string;
-  sections: {
-    title: string;
-    /** domande a parole: etichetta, se è nel riepilogo, voci con conteggi */
-    words: { label: string; inSummary: boolean; respondents: number; items: { label: string; count: number }[] }[];
-    /** altre domande, già riassunte in una riga */
-    other: { label: string; prompt: string; headline: string }[];
-  }[];
+export interface EvolutionLink {
+  from: string;
+  to: string;
 }
 
-export interface Keyword {
+/**
+ * Collegamenti "evolutivi" tra le parole del prima e del dopo di un blocco
+ * (es. "utenza" → "identità"). Solo parole presenti negli elenchi.
+ */
+export async function generateLinks(
+  provider: AiProvider,
+  model: string,
+  apiKey: string,
+  topic: string,
+  before: { label: string; count: number }[],
+  after: { label: string; count: number }[],
+): Promise<{ links: EvolutionLink[]; note: string }> {
+  if (!before.length || !after.length) return { links: [], note: "" };
+  const fmt = (l: { label: string; count: number }[]) => l.map((w) => `- ${w.label} (${w.count})`).join("\n");
+  const prompt = `Durante un evento tecnico il pubblico ha scritto parole su "${topic}" prima e dopo la spiegazione dei relatori.
+
+PRIMA della spiegazione:
+${fmt(before)}
+
+DOPO la spiegazione:
+${fmt(after)}
+
+Individua al massimo 3 "evoluzioni": coppie in cui un concetto del PRIMA si è trasformato o precisato in un concetto del DOPO (es. "password" → "MFA", "utenti" → "identità"). Il collegamento deve essere plausibile per un esperto del tema. Non collegare parole identiche. Se non ci sono evoluzioni sensate, restituisci un elenco vuoto.
+Scrivi anche una frase breve in italiano (max 18 parole, tono positivo, rivolta al pubblico) che racconti il cambiamento.
+
+Rispondi SOLO con JSON valido:
+{"links":[{"from":"parola esatta del PRIMA","to":"parola esatta del DOPO"}],"note":"..."}`;
+  const text = await callModel(provider, model, apiKey, prompt);
+  const parsed = extractJson(text) as { links?: unknown; note?: unknown };
+  const b = new Set(before.map((w) => w.label));
+  const a = new Set(after.map((w) => w.label));
+  const links = (Array.isArray(parsed.links) ? parsed.links : [])
+    .map((l) => ({ from: String(l?.from ?? ""), to: String(l?.to ?? "") }))
+    .filter((l) => b.has(l.from) && a.has(l.to) && l.from.toLowerCase() !== l.to.toLowerCase())
+    .slice(0, 3);
+  return { links, note: typeof parsed.note === "string" ? parsed.note.trim().slice(0, 200) : "" };
+}
+
+export interface Theme {
   label: string;
-  count: number;
+  words: string[];
 }
 
-export interface AiSummary {
-  generatedAt: string;
-  provider: string;
-  model: string;
-  overall: Keyword[];
-  overallNote: string;
-  sections: { title: string; keywords: Keyword[]; note: string }[];
-}
+/**
+ * Le 9 parole della corona convergono in 3 macro-temi: ogni parola va in un solo tema.
+ */
+export async function generateThemes(
+  provider: AiProvider,
+  model: string,
+  apiKey: string,
+  eventTitle: string,
+  words: { label: string; blocks: string[] }[],
+): Promise<{ themes: Theme[]; note: string }> {
+  const list = words.map((w) => `- ${w.label} (da: ${w.blocks.join(", ")})`).join("\n");
+  const prompt = `Evento tecnico "${eventTitle}". Queste sono le ${words.length} parole più forti scritte dal pubblico alla fine dei vari argomenti:
+${list}
 
-function buildSummaryPrompt(input: SummaryInput): string {
-  const sections = input.sections
-    .map((s, i) => {
-      const words = s.words
-        .map(
-          (w) =>
-            `  Domanda a parole "${w.label}"${w.inSummary ? " [PRINCIPALE]" : ""} (${w.respondents} risposte): ` +
-            (w.items.length ? w.items.map((x) => `${x.label} (${x.count})`).join(", ") : "nessuna risposta"),
-        )
-        .join("\n");
-      const other = s.other.map((o) => `  Domanda "${o.label}": ${o.prompt} → ${o.headline || "nessuna risposta"}`).join("\n");
-      return `Sezione ${i + 1}: "${s.title}"\n${words || "  (nessuna domanda a parole)"}${other ? "\n" + other : ""}`;
-    })
-    .join("\n\n");
+Raggruppale in esattamente 3 macro-temi trasversali che mostrino dove convergono i diversi argomenti (es. "identità" e "MFA" convergono in "Sicurezza dell'identità").
+Regole:
+- ogni parola va assegnata a UN solo tema, e tutte le parole devono essere assegnate;
+- l'etichetta di ogni tema è breve (2-4 parole), in italiano, d'impatto, leggibile su un proiettore;
+- copia le parole esattamente come nell'elenco.
+Scrivi anche una frase finale (max 22 parole) che leghi i tre temi, rivolta al pubblico.
 
-  return `Sei l'analista di un evento tecnico dal vivo intitolato "${input.eventTitle}".
-Il pubblico ha risposto da telefono a domande divise per sezioni. Per le domande a parole hai le voci scritte con il numero di persone che le hanno scritte.
-Le domande segnate [PRINCIPALE] sono quelle che l'organizzatore considera il risultato della sezione (di solito quelle di fine sezione, dopo la spiegazione): dai loro più peso; le altre servono come contesto (es. cosa pensava il pubblico prima).
-
-${sections}
-
-Compito:
-1. Per ogni sezione indica da 3 a 5 parole chiave che riassumono cosa il pubblico associa a quella sezione, privilegiando le domande [PRINCIPALE]. Puoi unire sinonimi, traduzioni e varianti in un'unica parola chiave (es. "accesso condizionale" e "Conditional Access"); in quel caso "count" è la somma dei conteggi uniti. Usa solo concetti presenti nelle risposte, non inventarne.
-2. Aggiungi per ogni sezione una frase breve (max 25 parole, in italiano) su cosa emerge, ad esempio come è cambiata la percezione rispetto alla domanda iniziale.
-3. Indica le 5 parole chiave principali dell'intero evento, considerando tutte le sezioni, con il loro conteggio complessivo, e una frase di sintesi generale (max 35 parole).
-Le sezioni senza risposte vanno restituite con keywords vuoto e note "".
-
-Rispondi SOLO con JSON valido, senza testo prima o dopo, in questo formato:
-{"sections":[{"title":"titolo esatto della sezione","keywords":[{"label":"...","count":0}],"note":"..."}],"overall":[{"label":"...","count":0}],"overallNote":"..."}`;
-}
-
-function cleanKeywords(v: unknown, max: number): Keyword[] {
-  return (Array.isArray(v) ? v : [])
-    .map((k) => ({
-      label: typeof k?.label === "string" ? k.label.trim().slice(0, 40) : "",
-      count: Math.max(0, Math.round(Number(k?.count) || 0)),
-    }))
-    .filter((k) => k.label)
-    .sort((a, b) => b.count - a.count)
-    .slice(0, max);
-}
-
-export async function generateSummary(provider: AiProvider, model: string, apiKey: string, input: SummaryInput): Promise<AiSummary> {
-  const text = await callModel(provider, model, apiKey, buildSummaryPrompt(input));
-  const parsed = extractJson(text) as { sections?: unknown; overall?: unknown; overallNote?: unknown };
-  const got = Array.isArray(parsed.sections) ? parsed.sections : [];
-  return {
-    generatedAt: new Date().toISOString(),
-    provider,
-    model,
-    overall: cleanKeywords(parsed.overall, 5),
-    overallNote: typeof parsed.overallNote === "string" ? parsed.overallNote.trim().slice(0, 400) : "",
-    // si allinea alle sezioni reali, nell'ordine dell'evento
-    sections: input.sections.map((s, i) => {
-      const m =
-        got.find((g: { title?: unknown }) => typeof g?.title === "string" && g.title.trim().toLowerCase() === s.title.toLowerCase()) ??
-        got[i];
-      return {
-        title: s.title,
-        keywords: cleanKeywords(m?.keywords, 5),
-        note: typeof m?.note === "string" ? m.note.trim().slice(0, 300) : "",
-      };
-    }),
-  };
+Rispondi SOLO con JSON valido:
+{"themes":[{"label":"...","words":["...","..."]}],"note":"..."}`;
+  const text = await callModel(provider, model, apiKey, prompt);
+  const parsed = extractJson(text) as { themes?: unknown; note?: unknown };
+  const valid = new Map(words.map((w) => [w.label.toLowerCase(), w.label]));
+  const used = new Set<string>();
+  const themes: Theme[] = (Array.isArray(parsed.themes) ? parsed.themes : []).slice(0, 3).map((t) => ({
+    label: typeof t?.label === "string" ? t.label.trim().slice(0, 40) : "",
+    words: (Array.isArray(t?.words) ? t.words : [])
+      .map((w: unknown) => valid.get(String(w).toLowerCase()))
+      .filter((w: string | undefined): w is string => !!w && !used.has(w) && (used.add(w), true)),
+  }));
+  while (themes.length < 3) themes.push({ label: "", words: [] });
+  themes.forEach((t, i) => {
+    if (!t.label) t.label = `Tema ${i + 1}`;
+  });
+  // parole dimenticate dall'AI: vanno nel tema più piccolo
+  for (const w of words) {
+    if (used.has(w.label)) continue;
+    themes.sort((x, y) => x.words.length - y.words.length)[0].words.push(w.label);
+    used.add(w.label);
+  }
+  return { themes: themes.filter((t) => t.words.length), note: typeof parsed.note === "string" ? parsed.note.trim().slice(0, 220) : "" };
 }

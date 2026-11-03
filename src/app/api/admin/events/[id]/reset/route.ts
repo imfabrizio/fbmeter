@@ -25,9 +25,10 @@ export const POST = api(async (req: Request, { params }: Ctx) => {
       const blocks = await tx.select({ id: schema.blocks.id }).from(schema.blocks).where(eq(schema.blocks.eventId, ev.id));
       for (const b of blocks) await tx.delete(schema.aliases).where(eq(schema.aliases.blockId, b.id));
     }
+    await tx.update(schema.blocks).set({ reveal: null }).where(eq(schema.blocks.eventId, ev.id));
     await tx
       .update(schema.events)
-      .set({ activeQuestionId: null, screenMode: "live", screenBlockId: null, resultsPublished: false })
+      .set({ activeQuestionId: null, screenMode: "live", screenBlockId: null, teaserBlockId: null, resultsPublished: false, aiSummary: null })
       .where(eq(schema.events.id, ev.id));
   });
   return NextResponse.json({ ok: true });

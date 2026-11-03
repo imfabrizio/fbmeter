@@ -1,7 +1,7 @@
 "use client";
 
-import { InsightsView, type AiSummaryData, type Keyword } from "@/components/InsightsView";
-import { ResultHeadline, ResultView, type ResultData } from "@/components/ResultView";
+import { CrownView, RevealView, StripsView, type CrownData, type RevealData, type StripData } from "@/components/Finale";
+import { ResultView, type ResultData } from "@/components/ResultView";
 import { usePolling } from "@/components/usePolling";
 
 interface Live {
@@ -9,8 +9,8 @@ interface Live {
   code: string;
   joinUrl: string;
   participants: number;
-  mode: "live" | "join" | "compare" | "final" | "insights" | "qa";
-  insights?: { ai: AiSummaryData | null; top: Keyword[] };
+  mode: "live" | "join" | "reveal" | "preparing" | "strips" | "crown" | "qa";
+  preparingTitle?: string;
   active?: {
     blockTitle: string;
     blockIndex: number;
@@ -21,8 +21,9 @@ interface Live {
     revealed: boolean;
     result: ResultData;
   } | null;
-  compare?: { title: string; sides: { label: string; result: ResultData }[] };
-  final?: { title: string; items: { label: string; result: ResultData }[] }[];
+  reveal?: RevealData & { blockId: string };
+  strips?: StripData[];
+  crown?: CrownData;
   qa?: { id: string; text: string; votes: number }[];
 }
 
@@ -54,83 +55,35 @@ export function PresenterScreen({ code }: { code: string }) {
     </div>
   );
 
+  const heading = (kicker: string, title: string) => (
+    <div>
+      <div className="s-kicker">{kicker}</div>
+      <h1 className="s-prompt">{title}</h1>
+    </div>
+  );
+
   let top: React.ReactNode = <div className="s-kicker">{data.title}</div>;
   let body: React.ReactNode;
   let foot: React.ReactNode = null;
   let showJoinCorner = true;
 
-  if (data.mode === "insights" && data.insights) {
-    top = (
-      <div>
-        <div className="s-kicker">{data.title}</div>
-        <h1 className="s-prompt">In sintesi</h1>
-      </div>
-    );
-    body = <InsightsView ai={data.insights.ai} top={data.insights.top} variant="screen" />;
-  } else if (data.mode === "final" && data.final) {
-    top = (
-      <div>
-        <div className="s-kicker">{data.title}</div>
-        <h1 className="s-prompt">Cosa vi portate a casa</h1>
-      </div>
-    );
-    body = (
-      <div className="final">
-        {data.final.map((b) => (
-          <div key={b.title} className="fcard">
-            <h3>{b.title}</h3>
-            {b.items.map((it, i) =>
-              it.result.type === "words" && it.result.words.length ? (
-                <ol key={i}>
-                  {it.result.words.slice(0, 3).map((w) => (
-                    <li key={w.label}>
-                      {w.label}
-                      <span>{w.count}</span>
-                    </li>
-                  ))}
-                </ol>
-              ) : (
-                <p key={i} style={{ fontSize: "clamp(16px, 1.5vw, 28px)", fontWeight: 700 }}>
-                  {b.items.length > 1 && <span style={{ color: "var(--muted)", fontWeight: 500 }}>{it.label}: </span>}
-                  <ResultHeadline result={it.result} />
-                </p>
-              ),
-            )}
-          </div>
-        ))}
-        {data.final.length === 0 && <p style={{ color: "var(--muted)" }}>Nessuna domanda è segnata per il riepilogo.</p>}
-      </div>
-    );
-  } else if (data.mode === "compare" && data.compare) {
-    top = (
-      <div>
-        <div className="s-kicker">{data.title}</div>
-        <h1 className="s-prompt">
-          {data.compare.title}
-          {data.compare.sides.length === 2 && `: ${data.compare.sides[0].label.toLowerCase()} e ${data.compare.sides[1].label.toLowerCase()}`}
-        </h1>
-      </div>
-    );
-    body = (
-      <div className="compare" style={{ gridTemplateColumns: `repeat(${Math.max(1, data.compare.sides.length)}, 1fr)` }}>
-        {data.compare.sides.map((s, i) => (
-          <div key={i}>
-            <h3>
-              {s.label} · {s.result.respondents} risposte
-            </h3>
-            <ResultView result={s.result} cloudMax={25} />
-          </div>
-        ))}
-        {data.compare.sides.length === 0 && <p>Questo blocco non ha domande a parole.</p>}
-      </div>
-    );
+  if (data.mode === "reveal" && data.reveal) {
+    top = heading(data.title, `${data.reveal.title}: cosa è cambiato`);
+    showJoinCorner = false;
+    body = <RevealView key={data.reveal.blockId + data.reveal.before.length + data.reveal.after.length} data={data.reveal} />;
+  } else if (data.mode === "preparing") {
+    top = heading(data.title, data.preparingTitle ? `${data.preparingTitle}: cosa è cambiato` : "Un momento…");
+    body = <p style={{ fontSize: "clamp(18px, 2vw, 36px)", color: "var(--muted)" }}>Sto mettendo a confronto le vostre parole…</p>;
+  } else if (data.mode === "strips" && data.strips) {
+    top = heading(data.title, "Le vostre parole, argomento per argomento");
+    showJoinCorner = false;
+    body = <StripsView strips={data.strips} />;
+  } else if (data.mode === "crown" && data.crown) {
+    top = heading(data.title, "Dove convergono");
+    showJoinCorner = false;
+    body = <CrownView data={data.crown} title={data.title} />;
   } else if (data.mode === "qa" && data.qa) {
-    top = (
-      <div>
-        <div className="s-kicker">{data.title}</div>
-        <h1 className="s-prompt">Le vostre domande</h1>
-      </div>
-    );
+    top = heading(data.title, "Le vostre domande");
     body = (
       <ul className="qa-screen">
         {data.qa.length === 0 && <li>Nessuna domanda per ora</li>}
@@ -144,15 +97,7 @@ export function PresenterScreen({ code }: { code: string }) {
     );
   } else if (data.mode === "live" && data.active) {
     const a = data.active;
-    top = (
-      <div>
-        <div className="s-kicker">
-          {a.blockIndex}/{a.blockCount} · {a.blockTitle}
-          {a.label && ` · ${a.label}`}
-        </div>
-        <h1 className="s-prompt">{a.prompt}</h1>
-      </div>
-    );
+    top = heading(`${a.blockIndex}/${a.blockCount} · ${a.blockTitle}${a.label ? ` · ${a.label}` : ""}`, a.prompt);
     body = (
       <div className="s-result" style={a.type === "words" ? { width: "auto", fontSize: "inherit" } : undefined}>
         <ResultView result={a.result} revealed={a.revealed} empty="Rispondete dal telefono: i risultati compariranno qui" />

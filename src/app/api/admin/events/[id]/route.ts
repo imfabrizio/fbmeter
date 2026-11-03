@@ -26,6 +26,9 @@ export const GET = api(async (req: Request, { params }: Ctx) => {
         id: b.id,
         title: b.title,
         position: b.position,
+        revealReady: !!b.reveal,
+        revealAi: !!(b.reveal as { ai?: boolean } | null)?.ai,
+        hasPair: b.questions.filter((q) => q.type === "words").length >= 2,
         questions: b.questions.map((q) => {
           const r = results.get(q.id)!;
           return { ...q, respondents: r.respondents, headline: headline(r) };

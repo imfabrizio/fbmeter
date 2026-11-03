@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { ThemesList, type CrownData, type StripData } from "@/components/Finale";
 import { postJson, usePolling } from "@/components/usePolling";
 
 interface QaItem {
@@ -19,7 +20,13 @@ interface State {
   tokenRejected?: boolean;
   active: ActiveQuestion | null;
   qa?: QaItem[];
+  moment?: Moment | null;
+  results?: { strips: StripData[]; crown: CrownData };
 }
+
+type Moment =
+  | { phase: "teaser"; blockId: string; blockTitle: string; kind: string }
+  | { phase: "revealed"; blockId: string; blockTitle: string; kind: string; highlight: string[]; before: string[]; after: string[] };
 
 interface MyAnswer {
   words?: string[];
@@ -102,6 +109,9 @@ export function ParticipantApp({ code }: { code: string }) {
     );
   }
 
+  // risultati pubblicati: chiunque apra il link vede solo quelli
+  if (data.results) return <ResultsOnly title={data.event.title} results={data.results} />;
+
   if (token && !data.me && !data.tokenRejected) {
     return (
       <main className="narrow center">
@@ -134,11 +144,6 @@ export function ParticipantApp({ code }: { code: string }) {
             Sei <b>{data.me.nickname}</b> · codice {data.event.code}
           </div>
         </div>
-        {data.event.resultsPublished && (
-          <a className="btn sm" href={`/r/${code}`}>
-            Risultati
-          </a>
-        )}
       </header>
       {data.event.qaEnabled && (
         <div className="tabs" style={{ padding: "0 16px", marginBottom: 0 }}>
@@ -250,6 +255,8 @@ function PollPanel({
   }, [qid]);
 
   const filled = useMemo(() => words.filter((v) => v.trim()).length, [words]);
+
+  if (!q && state.moment) return <MomentView moment={state.moment} />;
 
   if (!q) {
     return (
@@ -528,6 +535,116 @@ function QaPanel({
           </div>
         ))}
       </div>
+    </div>
+  );
+}
+
+/* ------------------------------------------------------------------ */
+
+function ResultsOnly({ title, results }: { title: string; results: { strips: StripData[]; crown: CrownData } }) {
+  return (
+    <div className="p-shell">
+      <header className="p-head">
+        <div>
+          <div className="tiny muted">Risultati</div>
+          <div style={{ fontWeight: 800 }}>{title}</div>
+        </div>
+      </header>
+      <main className="p-main stack">
+        <section className="stack" style={{ gap: 10 }}>
+          <h2 style={{ margin: 0 }}>Argomento per argomento</h2>
+          <div className="mstrips">
+            {results.strips.map((s) => (
+              <div key={s.blockId} className="mstrip">
+                <div className="mstrip-title">{s.title}</div>
+                <div className="mstrip-words">
+                  {s.words.length ? (
+                    s.words.map((w, i) => (
+                      <span key={w.label} className={`r${i + 1}`}>
+                        {w.label}
+                      </span>
+                    ))
+                  ) : (
+                    <span className="r2">{s.headline || "—"}</span>
+                  )}
+                </div>
+              </div>
+            ))}
+          </div>
+        </section>
+        <section className="stack" style={{ gap: 10 }}>
+          <h2 style={{ margin: 0 }}>{results.crown.themes.length ? "Dove convergono" : "Le parole più forti"}</h2>
+          <ThemesList data={results.crown} />
+        </section>
+        <p className="tiny muted center">Grazie per aver partecipato!</p>
+      </main>
+    </div>
+  );
+}
+
+function MomentView({ moment }: { moment: Moment }) {
+  // vibrazione al primo arrivo del messaggio di suspense (dove il telefono lo supporta)
+  const key = `${moment.phase}:${moment.blockId}`;
+  useEffect(() => {
+    if (moment.phase !== "teaser") return;
+    try {
+      if (sessionStorage.getItem(`fbmeter:vib:${key}`)) return;
+      sessionStorage.setItem(`fbmeter:vib:${key}`, "1");
+      navigator.vibrate?.([120, 80, 120]);
+    } catch {}
+  }, [key, moment.phase]);
+
+  if (moment.phase === "teaser") {
+    const text: Record<string, { icon: string; title: string; sub: string }> = {
+      podium: { icon: "🏆", title: "Una delle tue parole è finita sul podio…", sub: "Guarda lo schermo!" },
+      anticipated: { icon: "🔮", title: "Avevi già intuito qualcosa…", sub: "Guarda lo schermo per scoprire cosa." },
+      participated: { icon: "👀", title: "Vediamo cosa è cambiato in sala", sub: "Guarda lo schermo!" },
+    };
+    const t = text[moment.kind] ?? text.participated;
+    return (
+      <div className="moment">
+        <div className="moment-icon">{t.icon}</div>
+        <h2>{t.title}</h2>
+        <p className="muted">{t.sub}</p>
+        <div className="tiny muted">{moment.blockTitle}</div>
+      </div>
+    );
+  }
+
+  const title =
+    moment.kind === "podium"
+      ? "La tua parola è sul podio!"
+      : moment.kind === "anticipated"
+        ? "Ci avevi visto giusto prima ancora della spiegazione"
+        : "Ecco cosa è cambiato";
+  return (
+    <div className="moment">
+      <div className="moment-icon">{moment.kind === "participated" ? "✨" : "🏆"}</div>
+      <h2>{title}</h2>
+      <div className="small muted" style={{ marginTop: 12 }}>
+        {moment.blockTitle} · dopo
+      </div>
+      <div className="podium">
+        {moment.after.map((w) => (
+          <span key={w} className={`pill ${moment.highlight.includes(w) ? "mine" : ""}`}>
+            {w}
+          </span>
+        ))}
+      </div>
+      {moment.before.length > 0 && (
+        <>
+          <div className="small muted" style={{ marginTop: 14 }}>
+            prima
+          </div>
+          <div className="podium">
+            {moment.before.map((w) => (
+              <span key={w} className="pill muted-pill">
+                {w}
+              </span>
+            ))}
+          </div>
+        </>
+      )}
     </div>
   );
 }

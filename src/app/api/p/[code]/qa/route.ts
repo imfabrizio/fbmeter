@@ -9,7 +9,7 @@ type Ctx = { params: Promise<{ code: string }> };
 export const POST = api(async (req: Request, { params }: Ctx) => {
   const { code } = await params;
   const ev = await eventByCode(code);
-  if (!ev.qaEnabled) throw new HttpError(403, "Le domande non sono attive per questo evento");
+  if (!ev.qaEnabled || ev.resultsPublished) throw new HttpError(403, "Le domande non sono attive per questo evento");
   const me = await requireParticipant(req, ev.id);
   const body = await readJson<{ text?: unknown }>(req);
   const text = typeof body.text === "string" ? body.text.replace(/\s+/g, " ").trim().slice(0, 300) : "";

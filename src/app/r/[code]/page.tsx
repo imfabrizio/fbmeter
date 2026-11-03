@@ -1,9 +1,10 @@
 import { eq } from "drizzle-orm";
 import type { Metadata } from "next";
-import { InsightsView, type AiSummaryData } from "@/components/InsightsView";
+import { ThemesList } from "@/components/Finale";
 import { ResultView } from "@/components/ResultView";
 import { getDb, schema } from "@/db";
-import { eventSummary, overallTopWords } from "@/lib/events";
+import { eventSummary } from "@/lib/events";
+import { publicResults } from "@/lib/reveal";
 import { slimResult } from "@/lib/questions";
 import { currentUser, isOperator } from "@/lib/session";
 
@@ -37,11 +38,7 @@ export default async function ResultsPage({ params }: { params: Promise<{ code: 
   }
 
   const summary = await eventSummary(ev.id);
-  const top = await overallTopWords(ev.id);
-  const ai = (ev.aiSummary ?? null) as AiSummaryData | null;
-  const wordRows = summary.flatMap((b) =>
-    b.items.filter((it) => it.result.type === "words").map((it) => ({ block: b, item: it })),
-  );
+  const results = await publicResults(ev.id, ev.aiSummary);
 
   return (
     <main className="container stack">
@@ -51,41 +48,36 @@ export default async function ResultsPage({ params }: { params: Promise<{ code: 
         {!ev.resultsPublished && <div className="alert warn">Anteprima per gli operatori: i risultati non sono ancora pubblici.</div>}
       </div>
 
-      {(ai || top.length > 0) && (
-        <section className="card">
-          <InsightsView ai={ai} top={top} />
-        </section>
-      )}
+      <section className="card stack" style={{ maxWidth: 820 }}>
+        <h2 style={{ margin: 0 }}>Argomento per argomento</h2>
+        <div className="mstrips">
+          {results.strips.map((st) => (
+            <div key={st.blockId} className="mstrip">
+              <div className="mstrip-title">{st.title}</div>
+              <div className="mstrip-words">
+                {st.words.length ? (
+                  st.words.map((w, i) => (
+                    <span key={w.label} className={`r${i + 1}`}>
+                      {w.label}
+                    </span>
+                  ))
+                ) : (
+                  <span className="r2">{st.headline || "—"}</span>
+                )}
+              </div>
+            </div>
+          ))}
+        </div>
+      </section>
 
-      {wordRows.length > 0 && (
-        <section className="card" style={{ overflowX: "auto" }}>
-          <h2>In sintesi: le parole più scritte</h2>
-          <table className="table">
-            <thead>
-              <tr>
-                <th>Argomento</th>
-                <th>1ª</th>
-                <th>2ª</th>
-                <th>3ª</th>
-              </tr>
-            </thead>
-            <tbody>
-              {wordRows.map(({ block, item }) => (
-                <tr key={item.questionId}>
-                  <td>
-                    <b>{block.title}</b>
-                    {block.items.length > 1 && <div className="tiny muted">{item.label}</div>}
-                  </td>
-                  {[0, 1, 2].map((i) => (
-                    <td key={i}>{item.result.type === "words" && item.result.words[i] ? item.result.words[i].label : <span className="muted">—</span>}</td>
-                  ))}
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </section>
-      )}
+      <section className="card stack" style={{ maxWidth: 820 }}>
+        <h2 style={{ margin: 0 }}>{results.crown.themes.length ? "Dove convergono" : "Le parole più forti"}</h2>
+        <ThemesList data={results.crown} />
+      </section>
 
+      <details>
+        <summary>Tutti i dettagli per domanda</summary>
+        <div style={{ marginTop: 16 }}>
       <div className="grid">
         {summary.map((b) => (
           <section key={b.id} className="card result-card stack">
@@ -157,10 +149,9 @@ export default async function ResultsPage({ params }: { params: Promise<{ code: 
           </section>
         ))}
       </div>
+        </div>
+      </details>
       {summary.length === 0 && <p className="muted">Nessuna domanda è stata segnata per il riepilogo.</p>}
-      {wordRows.some((r) => r.item.newWords?.length) && (
-        <p className="small muted">“Nuova” indica una parola entrata nel podio solo rispetto alla domanda a parole precedente dello stesso blocco.</p>
-      )}
     </main>
   );
 }

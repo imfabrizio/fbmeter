@@ -1,18 +1,10 @@
 import { NextResponse } from "next/server";
-import {
-  blocksWithQuestions,
-  eventByCode,
-  eventSummary,
-  joinUrl,
-  locateQuestion,
-  overallTopWords,
-  participantCount,
-  qaList,
-  questionLabel,
-  questionResults,
-} from "@/lib/events";
+import { getDb, schema } from "@/db";
+import { blocksWithQuestions, eventByCode, joinUrl, locateQuestion, participantCount, qaList, questionResults } from "@/lib/events";
 import { slimResult } from "@/lib/questions";
+import { computeStrips, publicResults, type BlockReveal } from "@/lib/reveal";
 import { api } from "@/lib/session";
+import { eq } from "drizzle-orm";
 
 type Ctx = { params: Promise<{ code: string }> };
 
@@ -20,64 +12,46 @@ export const dynamic = "force-dynamic";
 
 const noStore = { headers: { "cache-control": "no-store" } };
 
+/** Valori di versioni precedenti */
+const LEGACY: Record<string, string> = { final: "strips", insights: "strips", compare: "reveal" };
+
 /** Dati per lo schermo del proiettore. Sola lettura, risposte anonime. */
 export const GET = api(async (req: Request, { params }: Ctx) => {
   const { code } = await params;
   const ev = await eventByCode(code);
+  const mode = LEGACY[ev.screenMode] ?? ev.screenMode;
   const base = {
     title: ev.title,
     code: ev.code,
     joinUrl: joinUrl(req, ev.code),
     participants: await participantCount(ev.id),
-    mode: ev.screenMode,
+    mode,
   };
 
-  if (ev.screenMode === "qa" && ev.qaEnabled) {
+  if (mode === "qa" && ev.qaEnabled) {
     const qa = (await qaList(ev.id, { moderator: false })).filter((q) => q.status === "visible").slice(0, 8);
     return NextResponse.json({ ...base, qa }, noStore);
   }
 
-  if (ev.screenMode === "insights") {
-    return NextResponse.json({ ...base, insights: { ai: ev.aiSummary ?? null, top: await overallTopWords(ev.id) } }, noStore);
+  if (mode === "strips") {
+    return NextResponse.json({ ...base, strips: await computeStrips(ev.id) }, noStore);
   }
 
-  if (ev.screenMode === "final") {
-    const summary = await eventSummary(ev.id);
-    return NextResponse.json(
-      {
-        ...base,
-        final: summary.map((b) => ({
-          title: b.title,
-          items: b.items.map((it) => ({ label: it.label, result: slimResult(it.result, 3) })),
-        })),
-      },
-      noStore,
-    );
+  if (mode === "crown") {
+    const { crown } = await publicResults(ev.id, ev.aiSummary);
+    return NextResponse.json({ ...base, crown }, noStore);
   }
 
-  if (ev.screenMode === "compare" && ev.screenBlockId) {
-    const blocks = await blocksWithQuestions(ev.id);
-    const b = blocks.find((x) => x.id === ev.screenBlockId);
-    if (b) {
-      const wordQs = b.questions.filter((q) => q.type === "words");
-      // confronto tra la prima e l'ultima domanda a parole del blocco
-      const pair = wordQs.length >= 2 ? [wordQs[0], wordQs[wordQs.length - 1]] : wordQs;
-      const results = await questionResults(pair);
-      return NextResponse.json(
-        {
-          ...base,
-          compare: {
-            title: b.title,
-            sides: pair.map((q) => ({ label: questionLabel(q, b), result: slimResult(results.get(q.id)!, 40) })),
-          },
-        },
-        noStore,
-      );
+  if (mode === "reveal" && ev.screenBlockId) {
+    const [b] = await getDb().select().from(schema.blocks).where(eq(schema.blocks.id, ev.screenBlockId)).limit(1);
+    if (b?.reveal) {
+      return NextResponse.json({ ...base, reveal: { blockId: b.id, title: b.title, ...(b.reveal as BlockReveal) } }, noStore);
     }
+    return NextResponse.json({ ...base, mode: "preparing", preparingTitle: b?.title ?? "" }, noStore);
   }
 
   let active = null;
-  if (ev.screenMode === "live" && ev.activeQuestionId) {
+  if (mode === "live" && ev.activeQuestionId) {
     const blocks = await blocksWithQuestions(ev.id);
     const loc = locateQuestion(blocks, ev.activeQuestionId);
     if (loc) {
@@ -93,9 +67,7 @@ export const GET = api(async (req: Request, { params }: Ctx) => {
         revealed: q.revealed,
         result: slimResult(
           // prima della rivelazione il proiettore non deve evidenziare la risposta giusta
-          result.type === "quiz" && !q.revealed
-            ? { ...result, options: result.options.map((o) => ({ ...o, correct: false })) }
-            : result,
+          result.type === "quiz" && !q.revealed ? { ...result, options: result.options.map((o) => ({ ...o, correct: false })) } : result,
         ),
       };
     }

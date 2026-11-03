@@ -1,19 +1,25 @@
 import { and, eq } from "drizzle-orm";
-import { NextResponse } from "next/server";
+import { NextResponse, after } from "next/server";
 import { getDb, schema } from "@/db";
-import { eventById } from "@/lib/events";
+import { blocksWithQuestions, eventById, locateQuestion } from "@/lib/events";
+import { prepareReveal, revealPair } from "@/lib/reveal";
 import { HttpError, api, readJson, requireOperator } from "@/lib/session";
 
 type Ctx = { params: Promise<{ id: string }> };
 
-const SCREEN_MODES = new Set(["live", "join", "compare", "final", "insights", "qa"]);
+export const maxDuration = 60;
+
+/** live: domanda aperta · join: QR grande · reveal: prima/dopo di un blocco · strips: risultato per argomento · crown: convergenza · qa */
+const SCREEN_MODES = new Set(["live", "join", "reveal", "strips", "crown", "qa"]);
 
 /**
  * Regia: quale domanda è aperta e cosa mostra il proiettore.
  * Aprire una domanda chiude automaticamente la precedente (ne è aperta una sola).
+ * Chiudere l'ultima domanda a parole di un blocco prepara la rivelazione prima/dopo
+ * e fa partire il messaggio di suspense sui telefoni.
  */
 export const POST = api(async (req: Request, { params }: Ctx) => {
-  await requireOperator();
+  const me = await requireOperator();
   const { id } = await params;
   const ev = await eventById(id);
   const body = await readJson<{
@@ -33,6 +39,7 @@ export const POST = api(async (req: Request, { params }: Ctx) => {
       .where(and(eq(schema.questions.id, body.reveal.questionId), eq(schema.questions.eventId, ev.id)));
   }
 
+  const changingQuestion = body.activeQuestionId !== undefined && body.activeQuestionId !== ev.activeQuestionId;
   if (body.activeQuestionId === null) patch.activeQuestionId = null;
   else if (typeof body.activeQuestionId === "string") {
     const [q] = await db
@@ -42,8 +49,21 @@ export const POST = api(async (req: Request, { params }: Ctx) => {
       .limit(1);
     if (!q) throw new HttpError(404, "Domanda non trovata");
     patch.activeQuestionId = q.id;
-    // aprendo una domanda il proiettore torna sulla nuvola live
+    // aprendo una domanda il proiettore torna sulla domanda aperta
     if (body.screenMode === undefined) patch.screenMode = "live";
+  }
+
+  // si sta chiudendo la domanda di fine di un blocco? → suspense sui telefoni + preparazione
+  let closedBlockId: string | null = null;
+  if (changingQuestion && ev.activeQuestionId) {
+    const blocks = await blocksWithQuestions(ev.id);
+    const loc = locateQuestion(blocks, ev.activeQuestionId);
+    const pair = loc ? revealPair(loc.block) : null;
+    if (loc && pair && pair[1].id === ev.activeQuestionId) {
+      closedBlockId = loc.block.id;
+      patch.teaserBlockId = loc.block.id;
+      if (body.screenMode === undefined && body.activeQuestionId === null) patch.screenBlockId = loc.block.id;
+    }
   }
 
   if (typeof body.screenMode === "string") {
@@ -54,5 +74,17 @@ export const POST = api(async (req: Request, { params }: Ctx) => {
   if (body.screenBlockId !== undefined) patch.screenBlockId = body.screenBlockId;
 
   if (Object.keys(patch).length) await db.update(schema.events).set(patch).where(eq(schema.events.id, ev.id));
-  return NextResponse.json({ ok: true });
+
+  // la preparazione (con l'AI) gira dopo la risposta, così la regia non aspetta
+  if (closedBlockId) {
+    const blockId = closedBlockId;
+    after(async () => {
+      try {
+        await prepareReveal(ev.id, blockId, me.id);
+      } catch (err) {
+        console.error("Preparazione rivelazione non riuscita:", err);
+      }
+    });
+  }
+  return NextResponse.json({ ok: true, preparing: closedBlockId });
 });

@@ -47,6 +47,8 @@ export const events = pgTable("events", {
   /** live | join | compare | final — cosa mostra lo schermo del proiettore */
   screenMode: text("screen_mode").notNull().default("live"),
   screenBlockId: uuid("screen_block_id"),
+  /** Blocco appena chiuso: i telefoni mostrano il messaggio di suspense fino alla rivelazione */
+  teaserBlockId: uuid("teaser_block_id"),
   qaEnabled: boolean("qa_enabled").notNull().default(false),
   qaModerated: boolean("qa_moderated").notNull().default(false),
   resultsPublished: boolean("results_published").notNull().default(false),
@@ -65,6 +67,8 @@ export const blocks = pgTable(
       .references(() => events.id, { onDelete: "cascade" }),
     position: integer("position").notNull(),
     title: text("title").notNull(),
+    /** Rivelazione prima/dopo preparata alla chiusura della domanda di fine */
+    reveal: jsonb("reveal"),
   },
   (t) => [index("blocks_event_idx").on(t.eventId)],
 );

@@ -14,6 +14,7 @@ export const POST = api(async (req: Request, { params }: Ctx) => {
   const me = await requireParticipant(req, ev.id);
   const body = await readJson<AnswerInput & { questionId?: string }>(req);
 
+  if (ev.resultsPublished) throw new HttpError(409, "I risultati sono stati pubblicati: le risposte sono chiuse");
   if (!ev.activeQuestionId || body.questionId !== ev.activeQuestionId) {
     throw new HttpError(409, "Questa domanda è stata chiusa");
   }

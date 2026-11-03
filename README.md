@@ -25,7 +25,9 @@ Il caso tipico, già pronto come modello alla creazione dell'evento, è la doman
 - **Q&A attivabile per evento.** Le domande si possono votare e, se si vuole, approvare prima della pubblicazione. Se il Q&A è spento non compare da nessuna parte.
 - **Login operatori** con Microsoft Entra ID e/o Google, in OpenID Connect standard. MFA e criteri di accesso sono quelli del vostro tenant. I nuovi utenti restano *in attesa* finché un amministratore non li abilita.
 - **Esportazione CSV**, compatibile con Excel in italiano. Due file: la classifica per blocco e tutte le risposte grezze, con forma scritta, chiave normalizzata e voce finale.
-- **Sintesi AI**: parole chiave per sezione e le 5 principali dell'evento, generate con la chiave dell'operatore e visibili a tutti nei Risultati e nella schermata "Sintesi" del proiettore. Senza AI vengono mostrate le 5 parole più scritte.
+- **Rivelazione prima/dopo per blocco**: chiudendo l'ultima domanda a parole di un blocco l'app prepara il confronto (parole del prima a sinistra, del dopo a destra, quelle rimaste al centro; l'AI collega le parole "evolute", es. login → MFA) e manda ai telefoni un messaggio di suspense ("una delle tue parole è sul podio… guarda lo schermo!"). La regia sceglie quando premere **Rivela**.
+- **Finale in due tempi**: "Risultato per argomento" (tre parole grandi per blocco) e "Convergenza": le 9 parole più forti su un anello convergono, animate, in 3 macro-temi generati dall'AI.
+- **Pubblicazione**: pubblicando i risultati, chiunque apra il QR vede solo i risultati finali; risposte e Q&A si chiudono.
 - **Dati di prova** generabili dalla regia, per provare tutto senza pubblico.
 - **Azzeramento delle prove** prima dell'evento vero.
 - **Pagine `/privacy` e `/termini`** pronte, con titolare e contatto presi da `APP_OWNER_NAME` e `APP_CONTACT_EMAIL`. Servono anche per pubblicare l'app OAuth su Google. Sono un punto di partenza: falle rivedere da chi segue la privacy nella tua organizzazione.
@@ -125,9 +127,9 @@ Un provider compare nella pagina di login solo se le sue variabili sono impostat
 2. Apri **Schermo proiettore** in una finestra a parte, a tutto schermo. Senza domande aperte mostra il QR grande.
 3. In **Impostazioni e domande** prepara le domande di ogni blocco (tipo, testo, opzioni, spunta *Nel riepilogo*). Per domande singole a inizio o fine evento crea un blocco apposito, es. "Apertura" o "Gradimento".
 4. Durante l'evento apri le domande una alla volta: il pulsante blu "Apri: …" propone sempre la successiva. Per i quiz, **Mostra soluzione** rivela la risposta su telefoni e proiettore.
-5. **Confronta** mostra sul proiettore la prima e l'ultima domanda a parole del blocco (prima/dopo).
+5. Chiudendo la domanda di fine di un blocco (con "Apri: …" o "Chiudi") i telefoni ricevono il messaggio di suspense e il prima/dopo si prepara da solo: premi **✨ Rivela** quando vuoi mostrarlo.
 6. In **Parole e unioni** rivedi le voci, unisci i sinonimi a mano o con l'AI.
-7. **Riepilogo finale** sul proiettore, poi **Pubblica i risultati**: sul telefono del pubblico compare il pulsante Risultati.
+7. A fine evento: **Risultato per argomento**, poi **Prepara convergenza** e **Convergenza** sul proiettore; infine **Pubblica i risultati**: tutti i telefoni passano ai soli risultati.
 8. Esporta i CSV per le analisi commerciali.
 
 Prima dell'evento vero usa *Impostazioni → Azzera le prove* per eliminare i dati dei test.
