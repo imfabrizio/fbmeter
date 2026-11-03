@@ -3,6 +3,7 @@ import {
   boolean,
   index,
   integer,
+  jsonb,
   pgTable,
   primaryKey,
   text,
@@ -49,6 +50,8 @@ export const events = pgTable("events", {
   qaEnabled: boolean("qa_enabled").notNull().default(false),
   qaModerated: boolean("qa_moderated").notNull().default(false),
   resultsPublished: boolean("results_published").notNull().default(false),
+  /** Sintesi generata dall'AI (parole chiave per sezione + principali dell'evento) */
+  aiSummary: jsonb("ai_summary"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });
 

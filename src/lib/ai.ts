@@ -53,7 +53,7 @@ async function callModel(provider: AiProvider, model: string, apiKey: string, pr
           "x-api-key": apiKey,
           "anthropic-version": "2023-06-01",
         },
-        body: JSON.stringify({ model, max_tokens: 2000, messages: [{ role: "user", content: prompt }] }),
+        body: JSON.stringify({ model, max_tokens: 4000, messages: [{ role: "user", content: prompt }] }),
       });
       break;
     case "google":
@@ -123,4 +123,99 @@ export async function suggestGroups(
 /** Test minimo della chiave salvata. */
 export async function testKey(provider: AiProvider, model: string, apiKey: string): Promise<void> {
   await callModel(provider, model, apiKey, 'Rispondi solo con {"ok":true}');
+}
+
+/* ------------------------------------------------------------------ */
+/* Sintesi dell'evento                                                 */
+/* ------------------------------------------------------------------ */
+
+export interface SummaryInput {
+  eventTitle: string;
+  sections: {
+    title: string;
+    /** domande a parole: etichetta, se è nel riepilogo, voci con conteggi */
+    words: { label: string; inSummary: boolean; respondents: number; items: { label: string; count: number }[] }[];
+    /** altre domande, già riassunte in una riga */
+    other: { label: string; prompt: string; headline: string }[];
+  }[];
+}
+
+export interface Keyword {
+  label: string;
+  count: number;
+}
+
+export interface AiSummary {
+  generatedAt: string;
+  provider: string;
+  model: string;
+  overall: Keyword[];
+  overallNote: string;
+  sections: { title: string; keywords: Keyword[]; note: string }[];
+}
+
+function buildSummaryPrompt(input: SummaryInput): string {
+  const sections = input.sections
+    .map((s, i) => {
+      const words = s.words
+        .map(
+          (w) =>
+            `  Domanda a parole "${w.label}"${w.inSummary ? " [PRINCIPALE]" : ""} (${w.respondents} risposte): ` +
+            (w.items.length ? w.items.map((x) => `${x.label} (${x.count})`).join(", ") : "nessuna risposta"),
+        )
+        .join("\n");
+      const other = s.other.map((o) => `  Domanda "${o.label}": ${o.prompt} → ${o.headline || "nessuna risposta"}`).join("\n");
+      return `Sezione ${i + 1}: "${s.title}"\n${words || "  (nessuna domanda a parole)"}${other ? "\n" + other : ""}`;
+    })
+    .join("\n\n");
+
+  return `Sei l'analista di un evento tecnico dal vivo intitolato "${input.eventTitle}".
+Il pubblico ha risposto da telefono a domande divise per sezioni. Per le domande a parole hai le voci scritte con il numero di persone che le hanno scritte.
+Le domande segnate [PRINCIPALE] sono quelle che l'organizzatore considera il risultato della sezione (di solito quelle di fine sezione, dopo la spiegazione): dai loro più peso; le altre servono come contesto (es. cosa pensava il pubblico prima).
+
+${sections}
+
+Compito:
+1. Per ogni sezione indica da 3 a 5 parole chiave che riassumono cosa il pubblico associa a quella sezione, privilegiando le domande [PRINCIPALE]. Puoi unire sinonimi, traduzioni e varianti in un'unica parola chiave (es. "accesso condizionale" e "Conditional Access"); in quel caso "count" è la somma dei conteggi uniti. Usa solo concetti presenti nelle risposte, non inventarne.
+2. Aggiungi per ogni sezione una frase breve (max 25 parole, in italiano) su cosa emerge, ad esempio come è cambiata la percezione rispetto alla domanda iniziale.
+3. Indica le 5 parole chiave principali dell'intero evento, considerando tutte le sezioni, con il loro conteggio complessivo, e una frase di sintesi generale (max 35 parole).
+Le sezioni senza risposte vanno restituite con keywords vuoto e note "".
+
+Rispondi SOLO con JSON valido, senza testo prima o dopo, in questo formato:
+{"sections":[{"title":"titolo esatto della sezione","keywords":[{"label":"...","count":0}],"note":"..."}],"overall":[{"label":"...","count":0}],"overallNote":"..."}`;
+}
+
+function cleanKeywords(v: unknown, max: number): Keyword[] {
+  return (Array.isArray(v) ? v : [])
+    .map((k) => ({
+      label: typeof k?.label === "string" ? k.label.trim().slice(0, 40) : "",
+      count: Math.max(0, Math.round(Number(k?.count) || 0)),
+    }))
+    .filter((k) => k.label)
+    .sort((a, b) => b.count - a.count)
+    .slice(0, max);
+}
+
+export async function generateSummary(provider: AiProvider, model: string, apiKey: string, input: SummaryInput): Promise<AiSummary> {
+  const text = await callModel(provider, model, apiKey, buildSummaryPrompt(input));
+  const parsed = extractJson(text) as { sections?: unknown; overall?: unknown; overallNote?: unknown };
+  const got = Array.isArray(parsed.sections) ? parsed.sections : [];
+  return {
+    generatedAt: new Date().toISOString(),
+    provider,
+    model,
+    overall: cleanKeywords(parsed.overall, 5),
+    overallNote: typeof parsed.overallNote === "string" ? parsed.overallNote.trim().slice(0, 400) : "",
+    // si allinea alle sezioni reali, nell'ordine dell'evento
+    sections: input.sections.map((s, i) => {
+      const m =
+        got.find((g: { title?: unknown }) => typeof g?.title === "string" && g.title.trim().toLowerCase() === s.title.toLowerCase()) ??
+        got[i];
+      return {
+        title: s.title,
+        keywords: cleanKeywords(m?.keywords, 5),
+        note: typeof m?.note === "string" ? m.note.trim().slice(0, 300) : "",
+      };
+    }),
+  };
 }

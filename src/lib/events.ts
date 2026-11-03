@@ -234,3 +234,24 @@ export function joinUrl(req: Request, code: string): string {
   const base = process.env.APP_URL?.replace(/\/$/, "") || new URL(req.url).origin;
   return `${base}/e/${code}`;
 }
+
+/**
+ * Parole più scritte in tutto l'evento, senza AI: somma le domande a parole del riepilogo
+ * (o tutte quelle a parole, se nessuna è nel riepilogo), unioni di ogni blocco applicate.
+ */
+export async function overallTopWords(eventId: string, n = 5): Promise<{ label: string; count: number }[]> {
+  const blocks = await blocksWithQuestions(eventId);
+  const all = blocks.flatMap((b) => b.questions).filter((q) => q.type === "words");
+  const chosen = all.some((q) => q.inSummary) ? all.filter((q) => q.inSummary) : all;
+  const results = await questionResults(chosen);
+  const merged = new Map<string, { label: string; count: number }>();
+  for (const r of results.values()) {
+    if (r.type !== "words") continue;
+    for (const w of r.words) {
+      const m = merged.get(w.key) ?? { label: w.label, count: 0 };
+      m.count += w.count;
+      merged.set(w.key, m);
+    }
+  }
+  return [...merged.values()].sort((a, b) => b.count - a.count || a.label.localeCompare(b.label, "it")).slice(0, n);
+}

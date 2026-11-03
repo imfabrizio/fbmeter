@@ -6,7 +6,7 @@ import { HttpError, api, readJson, requireOperator } from "@/lib/session";
 
 type Ctx = { params: Promise<{ id: string }> };
 
-const SCREEN_MODES = new Set(["live", "join", "compare", "final", "qa"]);
+const SCREEN_MODES = new Set(["live", "join", "compare", "final", "insights", "qa"]);
 
 /**
  * Regia: quale domanda è aperta e cosa mostra il proiettore.

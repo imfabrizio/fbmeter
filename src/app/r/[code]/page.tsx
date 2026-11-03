@@ -1,8 +1,9 @@
 import { eq } from "drizzle-orm";
 import type { Metadata } from "next";
+import { InsightsView, type AiSummaryData } from "@/components/InsightsView";
 import { ResultView } from "@/components/ResultView";
 import { getDb, schema } from "@/db";
-import { eventSummary } from "@/lib/events";
+import { eventSummary, overallTopWords } from "@/lib/events";
 import { slimResult } from "@/lib/questions";
 import { currentUser, isOperator } from "@/lib/session";
 
@@ -36,6 +37,8 @@ export default async function ResultsPage({ params }: { params: Promise<{ code: 
   }
 
   const summary = await eventSummary(ev.id);
+  const top = await overallTopWords(ev.id);
+  const ai = (ev.aiSummary ?? null) as AiSummaryData | null;
   const wordRows = summary.flatMap((b) =>
     b.items.filter((it) => it.result.type === "words").map((it) => ({ block: b, item: it })),
   );
@@ -47,6 +50,12 @@ export default async function ResultsPage({ params }: { params: Promise<{ code: 
         <h1>{ev.title}</h1>
         {!ev.resultsPublished && <div className="alert warn">Anteprima per gli operatori: i risultati non sono ancora pubblici.</div>}
       </div>
+
+      {(ai || top.length > 0) && (
+        <section className="card">
+          <InsightsView ai={ai} top={top} />
+        </section>
+      )}
 
       {wordRows.length > 0 && (
         <section className="card" style={{ overflowX: "auto" }}>

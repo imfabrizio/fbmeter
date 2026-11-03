@@ -1,5 +1,6 @@
 "use client";
 
+import { InsightsView, type AiSummaryData, type Keyword } from "@/components/InsightsView";
 import { ResultHeadline, ResultView, type ResultData } from "@/components/ResultView";
 import { usePolling } from "@/components/usePolling";
 
@@ -8,7 +9,8 @@ interface Live {
   code: string;
   joinUrl: string;
   participants: number;
-  mode: "live" | "join" | "compare" | "final" | "qa";
+  mode: "live" | "join" | "compare" | "final" | "insights" | "qa";
+  insights?: { ai: AiSummaryData | null; top: Keyword[] };
   active?: {
     blockTitle: string;
     blockIndex: number;
@@ -57,7 +59,15 @@ export function PresenterScreen({ code }: { code: string }) {
   let foot: React.ReactNode = null;
   let showJoinCorner = true;
 
-  if (data.mode === "final" && data.final) {
+  if (data.mode === "insights" && data.insights) {
+    top = (
+      <div>
+        <div className="s-kicker">{data.title}</div>
+        <h1 className="s-prompt">In sintesi</h1>
+      </div>
+    );
+    body = <InsightsView ai={data.insights.ai} top={data.insights.top} variant="screen" />;
+  } else if (data.mode === "final" && data.final) {
     top = (
       <div>
         <div className="s-kicker">{data.title}</div>

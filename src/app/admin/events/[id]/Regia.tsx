@@ -2,6 +2,7 @@
 
 import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
+import { InsightsView, type AiSummaryData } from "@/components/InsightsView";
 import { postJson, usePolling } from "@/components/usePolling";
 import { QTYPES, defaultQuestion, type QType } from "@/lib/questions";
 
@@ -50,6 +51,7 @@ interface EventState {
     qaEnabled: boolean;
     qaModerated: boolean;
     resultsPublished: boolean;
+    aiSummary: AiSummaryData | null;
   };
   joinUrl: string;
   participants: number;
@@ -154,6 +156,7 @@ function LiveTab({ data, refresh }: { data: EventState; refresh: () => Promise<v
     { id: "join", label: "QR grande" },
     { id: "compare", label: "Confronto parole" },
     { id: "final", label: "Riepilogo finale" },
+    { id: "insights", label: "Sintesi" },
     ...(ev.qaEnabled ? [{ id: "qa", label: "Domande dal pubblico" }] : []),
   ];
 
@@ -299,6 +302,8 @@ function LiveTab({ data, refresh }: { data: EventState; refresh: () => Promise<v
         </p>
       </div>
 
+      <AiSummaryCard eventId={ev.id} summary={ev.aiSummary} refresh={refresh} onShow={() => control({ screenMode: "insights" })} />
+
       <div className="card spread">
         <div>
           <b>Risultati pubblici</b>
@@ -324,6 +329,84 @@ function LiveTab({ data, refresh }: { data: EventState; refresh: () => Promise<v
           {ev.resultsPublished ? "Ritira i risultati" : "Pubblica i risultati"}
         </button>
       </div>
+    </div>
+  );
+}
+
+/* ------------------------------------------------------------------ */
+
+function AiSummaryCard({
+  eventId,
+  summary,
+  refresh,
+  onShow,
+}: {
+  eventId: string;
+  summary: AiSummaryData | null;
+  refresh: () => Promise<void>;
+  onShow: () => Promise<void>;
+}) {
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+
+  async function run(fn: () => Promise<unknown>) {
+    setBusy(true);
+    setErr(null);
+    try {
+      await fn();
+      await refresh();
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : "Errore");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className="card stack">
+      <div className="spread">
+        <div>
+          <h2 style={{ margin: 0 }}>Sintesi AI</h2>
+          <div className="small muted">
+            Parole chiave per sezione e le 5 principali dell&apos;evento, scelte dall&apos;AI unendo i sinonimi. Compare in cima ai
+            Risultati e nella schermata “Sintesi” del proiettore.
+          </div>
+        </div>
+        <div className="row">
+          <button className={`btn ${summary ? "" : "primary"}`} disabled={busy} onClick={() => run(() => postJson(`/api/admin/events/${eventId}/ai-summary`))}>
+            {busy ? "Generazione…" : summary ? "Rigenera" : "✨ Genera sintesi AI"}
+          </button>
+          {summary && (
+            <>
+              <button className="btn" disabled={busy} onClick={() => void onShow()}>
+                Mostra sul proiettore
+              </button>
+              <button
+                className="btn ghost danger"
+                disabled={busy}
+                onClick={() => confirm("Eliminare la sintesi AI?") && run(() => postJson(`/api/admin/events/${eventId}/ai-summary`, undefined, "DELETE"))}
+              >
+                Elimina
+              </button>
+            </>
+          )}
+        </div>
+      </div>
+      {err && <div className="alert error">{err}</div>}
+      {summary ? (
+        <>
+          <InsightsView ai={summary} top={[]} />
+          <p className="tiny muted">
+            Generata il {new Date(summary.generatedAt).toLocaleString("it-IT")} con {summary.model}. Se arrivano nuove risposte,
+            premi Rigenera per aggiornarla.
+          </p>
+        </>
+      ) : (
+        <p className="small muted">
+          Usa la tua chiave AI (Impostazioni AI). Senza sintesi, Risultati e proiettore mostrano le 5 parole più scritte calcolate
+          dai conteggi.
+        </p>
+      )}
     </div>
   );
 }

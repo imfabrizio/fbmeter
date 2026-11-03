@@ -5,6 +5,7 @@ import {
   eventSummary,
   joinUrl,
   locateQuestion,
+  overallTopWords,
   participantCount,
   qaList,
   questionLabel,
@@ -34,6 +35,10 @@ export const GET = api(async (req: Request, { params }: Ctx) => {
   if (ev.screenMode === "qa" && ev.qaEnabled) {
     const qa = (await qaList(ev.id, { moderator: false })).filter((q) => q.status === "visible").slice(0, 8);
     return NextResponse.json({ ...base, qa }, noStore);
+  }
+
+  if (ev.screenMode === "insights") {
+    return NextResponse.json({ ...base, insights: { ai: ev.aiSummary ?? null, top: await overallTopWords(ev.id) } }, noStore);
   }
 
   if (ev.screenMode === "final") {

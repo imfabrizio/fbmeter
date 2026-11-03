@@ -25,6 +25,8 @@ Il caso tipico, già pronto come modello alla creazione dell'evento, è la doman
 - **Q&A attivabile per evento.** Le domande si possono votare e, se si vuole, approvare prima della pubblicazione. Se il Q&A è spento non compare da nessuna parte.
 - **Login operatori** con Microsoft Entra ID e/o Google, in OpenID Connect standard. MFA e criteri di accesso sono quelli del vostro tenant. I nuovi utenti restano *in attesa* finché un amministratore non li abilita.
 - **Esportazione CSV**, compatibile con Excel in italiano. Due file: la classifica per blocco e tutte le risposte grezze, con forma scritta, chiave normalizzata e voce finale.
+- **Sintesi AI**: parole chiave per sezione e le 5 principali dell'evento, generate con la chiave dell'operatore e visibili a tutti nei Risultati e nella schermata "Sintesi" del proiettore. Senza AI vengono mostrate le 5 parole più scritte.
+- **Dati di prova** generabili dalla regia, per provare tutto senza pubblico.
 - **Azzeramento delle prove** prima dell'evento vero.
 - **Pagine `/privacy` e `/termini`** pronte, con titolare e contatto presi da `APP_OWNER_NAME` e `APP_CONTACT_EMAIL`. Servono anche per pubblicare l'app OAuth su Google. Sono un punto di partenza: falle rivedere da chi segue la privacy nella tua organizzazione.
 
