@@ -850,6 +850,8 @@ function SettingsTab({ data, refresh }: { data: EventState; refresh: () => Promi
   const [msg, setMsg] = useState<{ kind: "ok" | "error"; text: string } | null>(null);
   const [resetCode, setResetCode] = useState("");
   const [resetAliases, setResetAliases] = useState(false);
+  const [demoCount, setDemoCount] = useState(25);
+  const [demoMsg, setDemoMsg] = useState<{ kind: "ok" | "error"; text: string } | null>(null);
 
   const editBlocks = (fn: (bs: EditBlock[]) => EditBlock[]) => {
     setBlocks(fn);
@@ -1048,6 +1050,49 @@ function SettingsTab({ data, refresh }: { data: EventState; refresh: () => Promi
             Tutte le risposte
           </a>
         </div>
+      </div>
+
+      <div className="card stack">
+        <h2>Dati di prova</h2>
+        <p className="small muted">
+          Crea partecipanti finti (nickname “… (prova N)”) che rispondono a tutte le domande dell&apos;evento, con risposte
+          credibili per ogni tipo. Utile per provare proiettore, unioni di parole, AI e risultati. Si cancellano con{" "}
+          <b>Azzera le prove</b> qui sotto.
+        </p>
+        <div className="row">
+          <input
+            type="number"
+            min={1}
+            max={80}
+            value={demoCount}
+            onChange={(e) => setDemoCount(Number(e.target.value))}
+            style={{ width: 100 }}
+            aria-label="Numero di partecipanti di prova"
+          />
+          <button
+            className="btn"
+            disabled={busy || dirty}
+            onClick={async () => {
+              setBusy(true);
+              setDemoMsg(null);
+              try {
+                const r = await postJson<{ participants: number; questions: number }>(`/api/admin/events/${ev.id}/demo`, {
+                  participants: demoCount,
+                });
+                setDemoMsg({ kind: "ok", text: `Creati ${r.participants} partecipanti di prova con risposte a ${r.questions} domande.` });
+                await refresh();
+              } catch (e) {
+                setDemoMsg({ kind: "error", text: e instanceof Error ? e.message : "Errore" });
+              } finally {
+                setBusy(false);
+              }
+            }}
+          >
+            Genera risposte di prova
+          </button>
+          {dirty && <span className="small muted">Salva prima le modifiche alle domande</span>}
+        </div>
+        {demoMsg && <div className={`alert ${demoMsg.kind}`}>{demoMsg.text}</div>}
       </div>
 
       <div className="card stack" style={{ borderColor: "var(--danger)" }}>
