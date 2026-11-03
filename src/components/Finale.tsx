@@ -138,94 +138,75 @@ export interface CrownData {
   generatedAt: string | null;
 }
 
+/** Posizioni "a costellazione" deterministiche per il prologo (niente casualità tra un refresh e l'altro). */
+function scatter(k: number, n: number) {
+  const golden = 2.399963;
+  const r = 0.45 + 0.55 * Math.sqrt((k + 0.5) / n);
+  const a = k * golden;
+  return { x: 50 + 40 * r * Math.cos(a), y: 50 + 36 * r * Math.sin(a) };
+}
+
 /**
- * Convergenza: le parole compaiono su un anello largo, poi (un tema alla volta) volano
- * in tre colonne e sotto ciascuna si accende il macro-tema. Stato finale: tre colonne pulite.
+ * Convergenza, come una sigla: prologo con le parole sparse; poi, un tema alla volta,
+ * le sue parole compaiono al centro, si fondono e ne emerge il tema, che scivola al suo posto.
+ * Finale: tre righe centrate, tema grande e parole sotto.
  */
 export function CrownView({ data, title }: { data: CrownData; title: string }) {
   const hasThemes = data.themes.length > 0;
   const known = new Set(data.words.map((w) => w.label));
-  const groups = hasThemes
-    ? data.themes.map((t) => ({ label: t.label, words: t.words.filter((w) => known.has(w)) })).filter((g) => g.words.length)
-    : [{ label: title, words: data.words.map((w) => w.label) }];
+  const groups = (
+    hasThemes
+      ? data.themes.map((t) => ({ label: t.label, words: t.words.filter((w) => known.has(w)) }))
+      : [{ label: title, words: data.words.map((w) => w.label) }]
+  ).filter((g) => g.words.length);
 
-  // anello: ordine per gruppo, così ogni gruppo parte da uno spicchio vicino alla sua colonna
-  const ring = groups.flatMap((g, gi) => g.words.map((label) => ({ label, gi })));
-  const n = Math.max(ring.length, 1);
-  const cols = groups.length;
-  const colX = (gi: number) => (cols === 1 ? 50 : 17 + (gi * 66) / (cols - 1));
+  // il primo tema va in alto, il secondo in basso, l'ultimo resta al centro: il palco resta sempre libero
+  const slots = groups.length === 3 ? [20, 80, 50] : groups.length === 2 ? [32, 68] : [50];
+  const all = data.words.map((w) => w.label);
 
-  const tAppear = 0.3;
-  const stepAppear = 0.22;
-  // tutte le parole volano insieme; poi i temi si accendono uno alla volta
-  const tFly = tAppear + n * stepAppear + 1.4;
-  const tThemes = tFly + 1.6;
-  const perGroup = 1.3;
-  const tNote = tThemes + cols * perGroup + 0.5;
-
-  const items = ring.map((w, k) => {
-    const a = -Math.PI / 2 + ((k + 0.5) * 2 * Math.PI) / n;
-    const g = groups[w.gi];
-    const slot = g.words.indexOf(w.label);
-    const gap = Math.min(14, 50 / g.words.length);
-    const x1 = hasThemes ? colX(w.gi) : 50 + 40 * Math.cos(a);
-    const y1 = hasThemes ? 18 + slot * gap : 47 + 36 * Math.sin(a);
-    return {
-      ...w,
-      x0: 50 + 40 * Math.cos(a),
-      y0: 47 + 36 * Math.sin(a),
-      x1,
-      y1,
-      d1: tAppear + k * stepAppear,
-      d2: tFly + k * 0.06,
-      blocks: data.words.find((x) => x.label === w.label)?.blocks ?? [],
-    };
-  });
+  const tPrelude = 0.2;
+  const tStage = tPrelude + 0.18 * all.length + 1.6;
+  const per = 3.2;
+  const tNote = tStage + groups.length * per + 0.2;
 
   return (
-    <div className={`crown2 ${hasThemes ? "" : "static"}`} key={data.generatedAt ?? "static"}>
-      {hasThemes &&
-        groups.map((g, gi) => (
-          <div
-            key={`col${gi}`}
-            className={`c2-col t${gi + 1}`}
-            style={{ left: `${colX(gi)}%`, animationDelay: `${tFly + 0.3 + gi * 0.15}s` }}
-            aria-hidden
-          />
-        ))}
-      {items.map((w) => (
-        <div
-          key={w.label}
-          className={`c2-word t${w.gi + 1}`}
-          style={
-            {
-              "--x0": `${w.x0}%`,
-              "--y0": `${w.y0}%`,
-              "--x1": `${w.x1}%`,
-              "--y1": `${w.y1}%`,
-              animationDelay: `${w.d1}s, ${w.d2}s`,
-            } as React.CSSProperties
-          }
-        >
-          {w.label}
-          <small>{w.blocks.join(" · ")}</small>
-        </div>
-      ))}
-      {groups.map((g, gi) => (
-        <div
-          key={`th${gi}`}
-          className={`c2-theme t${gi + 1} ${hasThemes ? "" : "plain"}`}
-          style={{
-            left: `${hasThemes ? colX(gi) : 50}%`,
-            top: hasThemes ? "75%" : "47%",
-            animationDelay: `${hasThemes ? tThemes + gi * perGroup : tAppear + n * stepAppear + 0.4}s`,
-          }}
-        >
-          {g.label}
-        </div>
-      ))}
+    <div className="cv" key={data.generatedAt ?? "static"}>
+      {all.map((w, k) => {
+        const p = scatter(k, all.length);
+        return (
+          <span
+            key={`p-${w}`}
+            className="cv-prelude"
+            style={{ left: `${p.x}%`, top: `${p.y}%`, animationDelay: `${tPrelude + k * 0.18}s, ${tStage - 0.9}s` }}
+          >
+            {w}
+          </span>
+        );
+      })}
+
+      {groups.map((g, gi) => {
+        const t = tStage + gi * per;
+        return (
+          <div key={`g-${gi}`}>
+            <div className="cv-intro" style={{ animationDelay: `${t}s` }} aria-hidden>
+              {g.words.map((w, wi) => (
+                <span key={w} style={{ animationDelay: `${t + wi * 0.15}s` }}>
+                  {w}
+                </span>
+              ))}
+            </div>
+            <div className="cv-group" style={{ "--yf": `${slots[gi] ?? 50}%`, animationDelay: `${t + 1.55}s` } as React.CSSProperties}>
+              <div className="cv-theme">{g.label}</div>
+              <div className="cv-words" style={{ animationDelay: `${t + 2.9}s` }}>
+                {g.words.join("  ·  ")}
+              </div>
+            </div>
+          </div>
+        );
+      })}
+
       {data.note && (
-        <p className="c2-note" style={{ animationDelay: `${tNote}s` }}>
+        <p className="cv-note" style={{ animationDelay: `${tNote}s` }}>
           {data.note}
         </p>
       )}

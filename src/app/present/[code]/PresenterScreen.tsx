@@ -3,6 +3,39 @@
 import { CrownView, RevealView, StripsView, type CrownData, type RevealData, type StripData } from "@/components/Finale";
 import { ResultView, type ResultData } from "@/components/ResultView";
 import { usePolling } from "@/components/usePolling";
+import { useEffect, useState } from "react";
+
+/** Pulsante schermo intero: compare solo quando si muove il mouse. */
+function FullscreenButton() {
+  const [visible, setVisible] = useState(true);
+  const [isFs, setIsFs] = useState(false);
+  useEffect(() => {
+    let t: ReturnType<typeof setTimeout>;
+    const show = () => {
+      setVisible(true);
+      clearTimeout(t);
+      t = setTimeout(() => setVisible(false), 2500);
+    };
+    const onFs = () => setIsFs(!!document.fullscreenElement);
+    show();
+    window.addEventListener("mousemove", show);
+    document.addEventListener("fullscreenchange", onFs);
+    return () => {
+      clearTimeout(t);
+      window.removeEventListener("mousemove", show);
+      document.removeEventListener("fullscreenchange", onFs);
+    };
+  }, []);
+  return (
+    <button
+      className="fs-btn"
+      style={{ opacity: visible ? 1 : 0 }}
+      onClick={() => (document.fullscreenElement ? document.exitFullscreen() : document.documentElement.requestFullscreen()).catch(() => {})}
+    >
+      {isFs ? "Esci da schermo intero" : "⛶ Schermo intero"}
+    </button>
+  );
+}
 
 interface Live {
   title: string;
@@ -126,6 +159,7 @@ export function PresenterScreen({ code }: { code: string }) {
 
   return (
     <div className="screen">
+      <FullscreenButton />
       <div className="s-top">
         {top}
         {showJoinCorner && smallJoin}

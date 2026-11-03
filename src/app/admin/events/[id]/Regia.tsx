@@ -65,6 +65,28 @@ interface EventState {
 
 type Tab = "live" | "words" | "qa" | "settings";
 
+/** Copia un testo negli appunti (es. il link del proiettore da aprire su un altro PC). */
+function CopyButton({ text, label }: { text: string; label: string }) {
+  const [done, setDone] = useState(false);
+  return (
+    <button
+      className="btn"
+      title={text}
+      onClick={async () => {
+        try {
+          await navigator.clipboard.writeText(text);
+          setDone(true);
+          setTimeout(() => setDone(false), 2000);
+        } catch {
+          prompt("Copia questo link:", text);
+        }
+      }}
+    >
+      {done ? "Copiato ✓" : label}
+    </button>
+  );
+}
+
 const SHORT: Record<string, string> = { words: "Parole", choice: "Scelta", scale: "Scala", open: "Aperta", quiz: "Quiz" };
 const qName = (q: Pick<Q, "label" | "type">, i: number) => q.label || `${SHORT[q.type] ?? "Domanda"} ${i + 1}`;
 
@@ -91,6 +113,7 @@ export function Regia({ id }: { id: string }) {
           <a className="btn" href={`/present/${ev.code}`} target="_blank" rel="noreferrer">
             Schermo proiettore ↗
           </a>
+          <CopyButton text={data.joinUrl.replace(/\/e\/([^/]+)$/, "/present/$1")} label="Copia link proiettore" />
           <a className="btn" href={`/e/${ev.code}`} target="_blank" rel="noreferrer">
             Vista pubblico ↗
           </a>

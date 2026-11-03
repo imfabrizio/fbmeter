@@ -436,3 +436,34 @@ details summary { cursor: pointer; font-weight: 600; }
 .c2-theme.t3 { color: var(--c3); text-shadow: 0 0 28px rgb(71 224 185 / 0.55); }
 .c2-theme.plain { color: #fff; font-size: clamp(24px, 3vw, 58px); }
 .c2-note { position: absolute; left: 50%; top: 100%; transform: translateX(-50%); width: 80%; text-align: center; margin: 0.5em 0 0; font-size: clamp(16px, 1.6vw, 30px); font-weight: 600; opacity: 0; animation: c2Appear 1s ease both; }
+
+/* --- convergenza v3: sigla tipografica --- */
+@keyframes cvFadeIn { from { opacity: 0; filter: blur(6px); } to { opacity: 0.32; filter: blur(0); } }
+@keyframes cvFadeOut { to { opacity: 0; filter: blur(4px); } }
+@keyframes cvIntro {
+  0% { opacity: 0; }
+  12% { opacity: 1; }
+  45% { opacity: 1; gap: 3.2em; letter-spacing: 0; filter: blur(0); }
+  70% { opacity: 0; gap: 0.1em; letter-spacing: -0.04em; filter: blur(8px); }
+  100% { opacity: 0; gap: 0.1em; }
+}
+@keyframes cvIntroWord { from { opacity: 0; transform: translateY(14px); } to { opacity: 1; transform: none; } }
+@keyframes cvEmerge {
+  0% { opacity: 0; top: 50%; transform: translate(-50%, -50%) scale(1.45); filter: blur(10px); }
+  28% { opacity: 1; top: 50%; transform: translate(-50%, -50%) scale(1.45); filter: blur(0); }
+  55% { opacity: 1; top: 50%; transform: translate(-50%, -50%) scale(1.45); }
+  100% { opacity: 1; top: var(--yf); transform: translate(-50%, -50%) scale(1); filter: blur(0); }
+}
+@keyframes cvWords { from { opacity: 0; transform: translateY(-8px); } to { opacity: 1; transform: none; } }
+@keyframes cvNote { from { opacity: 0; transform: translate(-50%, 10px); } to { opacity: 1; transform: translate(-50%, 0); } }
+.cv { position: relative; width: min(96vw, calc(70vh * 16 / 9)); aspect-ratio: 16 / 9; margin-bottom: 2.6em; }
+.cv-prelude { position: absolute; transform: translate(-50%, -50%); font-weight: 700; font-size: clamp(16px, 1.6vw, 30px); color: #c9cbe0; white-space: nowrap; opacity: 0; animation: cvFadeIn 1.2s ease both, cvFadeOut 0.9s ease both; }
+.cv-intro { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); display: flex; gap: 3.2em; justify-content: center; align-items: baseline; width: 100%; font-weight: 800; font-size: clamp(22px, 2.6vw, 50px); color: #e7e8f3; white-space: nowrap; opacity: 0; animation: cvIntro 2.4s cubic-bezier(.5,0,.3,1) both; }
+.cv-intro span { opacity: 0; animation: cvIntroWord 0.6s ease both; }
+.cv-group { position: absolute; left: 50%; top: var(--yf); transform: translate(-50%, -50%); text-align: center; width: 90%; opacity: 0; animation: cvEmerge 2.1s cubic-bezier(.6,0,.2,1) both; }
+.cv-theme { font-weight: 900; font-size: clamp(26px, 3.4vw, 64px); line-height: 1.05; letter-spacing: -0.015em; color: #fff; text-shadow: 0 0 40px rgb(143 168 255 / 0.35); }
+.cv-theme::after { content: ""; display: block; width: 3.2em; height: 3px; margin: 0.28em auto 0; border-radius: 3px; background: linear-gradient(90deg, transparent, var(--c1), transparent); }
+.cv-words { margin-top: 0.45em; font-size: clamp(15px, 1.55vw, 30px); font-weight: 600; color: #a3a4bb; letter-spacing: 0.02em; white-space: pre; opacity: 0; animation: cvWords 0.8s ease both; }
+.cv-note { position: absolute; left: 50%; top: 100%; transform: translateX(-50%); width: 76%; text-align: center; margin: 0.4em 0 0; font-size: clamp(15px, 1.45vw, 28px); font-weight: 500; font-style: italic; color: #d7d8e6; opacity: 0; animation: cvNote 1.2s ease both; }
+
+.fs-btn { position: fixed; right: 16px; bottom: 16px; z-index: 10; appearance: none; border: 1px solid rgb(255 255 255 / 0.25); background: rgb(15 16 32 / 0.85); color: #fff; font: inherit; font-weight: 600; padding: 8px 14px; border-radius: 10px; cursor: pointer; transition: opacity 0.4s; }
