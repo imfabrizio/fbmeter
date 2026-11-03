@@ -1,14 +1,25 @@
 import { NextResponse } from "next/server";
-import { blocksWithQuestions, eventByCode, eventSummary, joinUrl, participantCount, qaList, questionStats } from "@/lib/events";
+import {
+  blocksWithQuestions,
+  eventByCode,
+  eventSummary,
+  joinUrl,
+  locateQuestion,
+  participantCount,
+  qaList,
+  questionLabel,
+  questionResults,
+} from "@/lib/events";
+import { slimResult } from "@/lib/questions";
 import { api } from "@/lib/session";
 
 type Ctx = { params: Promise<{ code: string }> };
 
 export const dynamic = "force-dynamic";
 
-const slim = (ws: { label: string; count: number }[], n = 60) => ws.slice(0, n).map((w) => ({ label: w.label, count: w.count }));
+const noStore = { headers: { "cache-control": "no-store" } };
 
-/** Dati per lo schermo del proiettore. Sola lettura, parole anonime. */
+/** Dati per lo schermo del proiettore. Sola lettura, risposte anonime. */
 export const GET = api(async (req: Request, { params }: Ctx) => {
   const { code } = await params;
   const ev = await eventByCode(code);
@@ -22,7 +33,7 @@ export const GET = api(async (req: Request, { params }: Ctx) => {
 
   if (ev.screenMode === "qa" && ev.qaEnabled) {
     const qa = (await qaList(ev.id, { moderator: false })).filter((q) => q.status === "visible").slice(0, 8);
-    return NextResponse.json({ ...base, qa }, { headers: { "cache-control": "no-store" } });
+    return NextResponse.json({ ...base, qa }, noStore);
   }
 
   if (ev.screenMode === "final") {
@@ -32,12 +43,10 @@ export const GET = api(async (req: Request, { params }: Ctx) => {
         ...base,
         final: summary.map((b) => ({
           title: b.title,
-          respondents: b.post.respondents,
-          top: slim(b.post.top),
-          preTop: slim(b.pre.top),
+          items: b.items.map((it) => ({ label: it.label, result: slimResult(it.result, 3) })),
         })),
       },
-      { headers: { "cache-control": "no-store" } },
+      noStore,
     );
   }
 
@@ -45,17 +54,19 @@ export const GET = api(async (req: Request, { params }: Ctx) => {
     const blocks = await blocksWithQuestions(ev.id);
     const b = blocks.find((x) => x.id === ev.screenBlockId);
     if (b) {
-      const s = await questionStats([b.pre.id, b.post.id]);
+      const wordQs = b.questions.filter((q) => q.type === "words");
+      // confronto tra la prima e l'ultima domanda a parole del blocco
+      const pair = wordQs.length >= 2 ? [wordQs[0], wordQs[wordQs.length - 1]] : wordQs;
+      const results = await questionResults(pair);
       return NextResponse.json(
         {
           ...base,
           compare: {
             title: b.title,
-            pre: { respondents: s.get(b.pre.id)!.respondents, words: slim(s.get(b.pre.id)!.words, 40) },
-            post: { respondents: s.get(b.post.id)!.respondents, words: slim(s.get(b.post.id)!.words, 40) },
+            sides: pair.map((q) => ({ label: questionLabel(q, b), result: slimResult(results.get(q.id)!, 40) })),
           },
         },
-        { headers: { "cache-control": "no-store" } },
+        noStore,
       );
     }
   }
@@ -63,21 +74,26 @@ export const GET = api(async (req: Request, { params }: Ctx) => {
   let active = null;
   if (ev.screenMode === "live" && ev.activeQuestionId) {
     const blocks = await blocksWithQuestions(ev.id);
-    const idx = blocks.findIndex((b) => b.pre.id === ev.activeQuestionId || b.post.id === ev.activeQuestionId);
-    if (idx >= 0) {
-      const b = blocks[idx];
-      const q = b.pre.id === ev.activeQuestionId ? b.pre : b.post;
-      const s = (await questionStats([q.id])).get(q.id)!;
+    const loc = locateQuestion(blocks, ev.activeQuestionId);
+    if (loc) {
+      const { block: b, blockIndex, question: q } = loc;
+      const result = (await questionResults([q])).get(q.id)!;
       active = {
         blockTitle: b.title,
-        blockIndex: idx + 1,
+        blockIndex: blockIndex + 1,
         blockCount: blocks.length,
-        phase: q.phase,
+        label: q.label,
+        type: q.type,
         prompt: q.prompt,
-        respondents: s.respondents,
-        words: slim(s.words),
+        revealed: q.revealed,
+        result: slimResult(
+          // prima della rivelazione il proiettore non deve evidenziare la risposta giusta
+          result.type === "quiz" && !q.revealed
+            ? { ...result, options: result.options.map((o) => ({ ...o, correct: false })) }
+            : result,
+        ),
       };
     }
   }
-  return NextResponse.json({ ...base, active }, { headers: { "cache-control": "no-store" } });
+  return NextResponse.json({ ...base, active }, noStore);
 });

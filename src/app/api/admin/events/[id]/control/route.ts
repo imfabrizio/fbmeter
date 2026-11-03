@@ -16,9 +16,22 @@ export const POST = api(async (req: Request, { params }: Ctx) => {
   await requireOperator();
   const { id } = await params;
   const ev = await eventById(id);
-  const body = await readJson<{ activeQuestionId?: string | null; screenMode?: string; screenBlockId?: string | null }>(req);
+  const body = await readJson<{
+    activeQuestionId?: string | null;
+    screenMode?: string;
+    screenBlockId?: string | null;
+    reveal?: { questionId: string; revealed: boolean };
+  }>(req);
   const db = getDb();
   const patch: Partial<typeof schema.events.$inferInsert> = {};
+
+  // quiz: mostra o nasconde la soluzione al pubblico e sul proiettore
+  if (body.reveal && typeof body.reveal.questionId === "string") {
+    await db
+      .update(schema.questions)
+      .set({ revealed: body.reveal.revealed === true })
+      .where(and(eq(schema.questions.id, body.reveal.questionId), eq(schema.questions.eventId, ev.id)));
+  }
 
   if (body.activeQuestionId === null) patch.activeQuestionId = null;
   else if (typeof body.activeQuestionId === "string") {

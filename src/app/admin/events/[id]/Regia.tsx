@@ -3,20 +3,32 @@
 import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
 import { postJson, usePolling } from "@/components/usePolling";
+import { QTYPES, defaultQuestion, type QType } from "@/lib/questions";
 
 interface Q {
   id: string;
+  blockId: string;
+  type: QType;
+  label: string;
   prompt: string;
   maxWords: number;
+  options: string[];
+  multiple: boolean;
+  correct: number[];
+  scaleMin: number;
+  scaleMax: number;
+  scaleMinLabel: string;
+  scaleMaxLabel: string;
+  inSummary: boolean;
+  revealed: boolean;
   respondents: number;
-  top: { label: string; count: number }[];
+  headline: string;
 }
 interface Block {
   id: string;
   title: string;
   position: number;
-  pre: Q;
-  post: Q;
+  questions: Q[];
 }
 interface QaItem {
   id: string;
@@ -47,6 +59,9 @@ interface EventState {
 
 type Tab = "live" | "words" | "qa" | "settings";
 
+const SHORT: Record<string, string> = { words: "Parole", choice: "Scelta", scale: "Scala", open: "Aperta", quiz: "Quiz" };
+const qName = (q: Pick<Q, "label" | "type">, i: number) => q.label || `${SHORT[q.type] ?? "Domanda"} ${i + 1}`;
+
 export function Regia({ id }: { id: string }) {
   const { data, error, refresh } = usePolling<EventState>(`/api/admin/events/${id}`, 2500);
   const [tab, setTab] = useState<Tab>("live");
@@ -54,6 +69,7 @@ export function Regia({ id }: { id: string }) {
   if (!data) return <main className="container">{error ? <div className="alert error">{error}</div> : <p className="muted">Caricamento…</p>}</main>;
   const ev = data.event;
   const pendingQa = data.qa.filter((q) => q.status === "pending").length;
+  const hasWords = data.blocks.some((b) => b.questions.some((q) => q.type === "words"));
 
   return (
     <main className="container stack">
@@ -83,21 +99,23 @@ export function Regia({ id }: { id: string }) {
         <button className={tab === "live" ? "active" : ""} onClick={() => setTab("live")}>
           Conduzione
         </button>
-        <button className={tab === "words" ? "active" : ""} onClick={() => setTab("words")}>
-          Parole e unioni
-        </button>
+        {hasWords && (
+          <button className={tab === "words" ? "active" : ""} onClick={() => setTab("words")}>
+            Parole e unioni
+          </button>
+        )}
         {ev.qaEnabled && (
           <button className={tab === "qa" ? "active" : ""} onClick={() => setTab("qa")}>
-            Domande {pendingQa > 0 && <span className="badge warn">{pendingQa}</span>}
+            Domande dal pubblico {pendingQa > 0 && <span className="badge warn">{pendingQa}</span>}
           </button>
         )}
         <button className={tab === "settings" ? "active" : ""} onClick={() => setTab("settings")}>
-          Impostazioni
+          Impostazioni e domande
         </button>
       </div>
 
       {tab === "live" && <LiveTab data={data} refresh={refresh} />}
-      {tab === "words" && <WordsTab eventId={ev.id} blocks={data.blocks} />}
+      {tab === "words" && hasWords && <WordsTab eventId={ev.id} blocks={data.blocks} />}
       {tab === "qa" && ev.qaEnabled && <QaTab eventId={ev.id} items={data.qa} refresh={refresh} />}
       {tab === "settings" && <SettingsTab data={data} refresh={refresh} />}
     </main>
@@ -125,23 +143,18 @@ function LiveTab({ data, refresh }: { data: EventState; refresh: () => Promise<v
     }
   }
 
-  const activeBlock = data.blocks.find((b) => b.pre.id === ev.activeQuestionId || b.post.id === ev.activeQuestionId);
-  const activePhase = activeBlock ? (activeBlock.pre.id === ev.activeQuestionId ? "inizio" : "fine") : null;
-
-  // suggerimento del passo successivo: ordine blocco1-inizio, blocco1-fine, blocco2-inizio, …
-  const sequence = data.blocks.flatMap((b) => [
-    { q: b.pre, label: `${b.title} · inizio` },
-    { q: b.post, label: `${b.title} · fine` },
-  ]);
+  // sequenza di conduzione: tutte le domande, blocco per blocco
+  const sequence = data.blocks.flatMap((b) => b.questions.map((q, i) => ({ q, b, label: `${b.title} · ${qName(q, i)}` })));
   const idx = sequence.findIndex((s) => s.q.id === ev.activeQuestionId);
+  const current = idx >= 0 ? sequence[idx] : null;
   const next = idx >= 0 ? sequence[idx + 1] : sequence.find((s) => s.q.respondents === 0);
 
   const modes: { id: string; label: string }[] = [
-    { id: "live", label: "Nuvola live" },
+    { id: "live", label: "Domanda aperta" },
     { id: "join", label: "QR grande" },
-    { id: "compare", label: "Confronto prima/dopo" },
+    { id: "compare", label: "Confronto parole" },
     { id: "final", label: "Riepilogo finale" },
-    ...(ev.qaEnabled ? [{ id: "qa", label: "Domande" }] : []),
+    ...(ev.qaEnabled ? [{ id: "qa", label: "Domande dal pubblico" }] : []),
   ];
 
   return (
@@ -162,21 +175,30 @@ function LiveTab({ data, refresh }: { data: EventState; refresh: () => Promise<v
             </a>
           </div>
         </div>
-        <div className="stack" style={{ minWidth: 240 }}>
-          {activeBlock ? (
+        <div className="stack" style={{ minWidth: 260 }}>
+          {current ? (
             <div className="alert ok">
-              Aperta: <b>{activeBlock.title}</b> · {activePhase}
+              Aperta: <b>{current.label}</b>
             </div>
           ) : (
             <div className="alert warn">Nessuna domanda aperta: il pubblico è in attesa.</div>
           )}
           <div className="row">
+            {current?.q.type === "quiz" && (
+              <button
+                className={`btn ${current.q.revealed ? "" : "primary"}`}
+                disabled={busy}
+                onClick={() => control({ reveal: { questionId: current.q.id, revealed: !current.q.revealed } })}
+              >
+                {current.q.revealed ? "Nascondi soluzione" : "Mostra soluzione"}
+              </button>
+            )}
             {next && (
               <button className="btn primary" disabled={busy} onClick={() => control({ activeQuestionId: next.q.id })}>
                 Apri: {next.label} →
               </button>
             )}
-            {activeBlock && (
+            {current && (
               <button className="btn" disabled={busy} onClick={() => control({ activeQuestionId: null })}>
                 Chiudi
               </button>
@@ -187,49 +209,58 @@ function LiveTab({ data, refresh }: { data: EventState; refresh: () => Promise<v
       {err && <div className="alert error">{err}</div>}
 
       <div className="stack" style={{ gap: 8 }}>
-        {data.blocks.map((b, i) => {
-          const current = b.pre.id === ev.activeQuestionId || b.post.id === ev.activeQuestionId;
+        {data.blocks.map((b, bi) => {
+          const isCurrent = b.questions.some((q) => q.id === ev.activeQuestionId);
+          const wordsCount = b.questions.filter((q) => q.type === "words").length;
           return (
-            <div key={b.id} className={`block-row ${current ? "current" : ""}`}>
-              <div className="block-num">{i + 1}</div>
+            <div key={b.id} className={`block-row ${isCurrent ? "current" : ""}`}>
+              <div className="block-num">{bi + 1}</div>
               <div>
                 <b>{b.title}</b>
                 <div className="tiny muted">
-                  {b.pre.top.length > 0 && <>Prima: {b.pre.top.map((w) => w.label).join(", ")}</>}
-                  {b.pre.top.length > 0 && b.post.top.length > 0 && " · "}
-                  {b.post.top.length > 0 && <>Dopo: {b.post.top.map((w) => w.label).join(", ")}</>}
+                  {b.questions
+                    .filter((q) => q.headline)
+                    .map((q) => `${qName(q, b.questions.indexOf(q))}: ${q.headline}`)
+                    .join(" · ")}
+                  {b.questions.length === 0 && "Nessuna domanda: aggiungile in Impostazioni e domande"}
                 </div>
               </div>
               <div className="phase-btns">
-                {(["pre", "post"] as const).map((ph) => {
-                  const q = b[ph];
+                {b.questions.map((q, i) => {
                   const on = q.id === ev.activeQuestionId;
                   return (
                     <button
-                      key={ph}
+                      key={q.id}
                       className={`btn phase-btn ${on ? "on" : ""}`}
                       disabled={busy || on}
                       onClick={() => control({ activeQuestionId: q.id })}
                       title={q.prompt}
                     >
-                      {ph === "pre" ? "Inizio" : "Fine"}
-                      <small>{on ? "aperta · " : ""}{q.respondents} risposte</small>
+                      {qName(q, i)}
+                      <small>
+                        {on ? "aperta · " : ""}
+                        {q.respondents} risp.
+                        {q.inSummary ? " · ★" : ""}
+                      </small>
                     </button>
                   );
                 })}
-                <button
-                  className="btn sm ghost"
-                  disabled={busy}
-                  onClick={() => control({ screenMode: "compare", screenBlockId: b.id })}
-                  title="Mostra sul proiettore il confronto prima/dopo di questo blocco"
-                >
-                  Confronta
-                </button>
+                {wordsCount > 0 && (
+                  <button
+                    className="btn sm ghost"
+                    disabled={busy}
+                    onClick={() => control({ screenMode: "compare", screenBlockId: b.id })}
+                    title="Mostra sul proiettore il confronto tra la prima e l'ultima domanda a parole del blocco"
+                  >
+                    Confronta
+                  </button>
+                )}
               </div>
             </div>
           );
         })}
-        {data.blocks.length === 0 && <p className="muted">Nessun blocco: aggiungili in Impostazioni.</p>}
+        {data.blocks.length === 0 && <p className="muted">Nessun blocco: aggiungili in Impostazioni e domande.</p>}
+        <p className="tiny muted">★ = domanda inclusa nel riepilogo finale.</p>
       </div>
 
       <div className="card stack">
@@ -240,9 +271,7 @@ function LiveTab({ data, refresh }: { data: EventState; refresh: () => Promise<v
               key={m.id}
               className={`btn sm ${ev.screenMode === m.id ? "on" : ""}`}
               disabled={busy}
-              onClick={() =>
-                control(m.id === "compare" ? { screenMode: "compare", screenBlockId: compareBlock } : { screenMode: m.id })
-              }
+              onClick={() => control(m.id === "compare" ? { screenMode: "compare", screenBlockId: compareBlock } : { screenMode: m.id })}
             >
               {m.label}
             </button>
@@ -265,8 +294,8 @@ function LiveTab({ data, refresh }: { data: EventState; refresh: () => Promise<v
           </select>
         </label>
         <p className="tiny muted">
-          Aprendo una domanda lo schermo torna da solo sulla nuvola live. Apri lo schermo proiettore in una finestra a parte e
-          mettila a tutto schermo (F11).
+          Aprendo una domanda lo schermo torna da solo sulla domanda aperta. Il confronto mette a fianco la prima e l&apos;ultima
+          domanda a parole del blocco. Apri lo schermo proiettore in una finestra a parte, a tutto schermo (F11).
         </p>
       </div>
 
@@ -304,13 +333,12 @@ function LiveTab({ data, refresh }: { data: EventState; refresh: () => Promise<v
 interface WordRow {
   key: string;
   label: string;
-  pre: number;
-  post: number;
+  counts: Record<string, number>;
   forms: string[];
 }
 interface WordsData {
   block: { id: string; title: string };
-  respondents: { pre: number; post: number };
+  columns: { id: string; label: string; respondents: number }[];
   words: WordRow[];
   aliases: { sourceKey: string; targetLabel: string }[];
 }
@@ -321,11 +349,9 @@ interface AiGroup {
 }
 
 function WordsTab({ eventId, blocks }: { eventId: string; blocks: Block[] }) {
-  const [blockId, setBlockId] = useState(blocks[0]?.id ?? "");
-  const { data, error, refresh } = usePolling<WordsData>(
-    blockId ? `/api/admin/events/${eventId}/blocks/${blockId}/words` : null,
-    5000,
-  );
+  const wordBlocks = blocks.filter((b) => b.questions.some((q) => q.type === "words"));
+  const [blockId, setBlockId] = useState(wordBlocks[0]?.id ?? "");
+  const { data, error, refresh } = usePolling<WordsData>(blockId ? `/api/admin/events/${eventId}/blocks/${blockId}/words` : null, 5000);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [label, setLabel] = useState("");
   const [busy, setBusy] = useState(false);
@@ -338,12 +364,10 @@ function WordsTab({ eventId, blocks }: { eventId: string; blocks: Block[] }) {
     setMsg(null);
   }, [blockId]);
 
+  const total = (w: WordRow) => Object.values(w.counts).reduce((s, n) => s + n, 0);
   const selectedRows = useMemo(() => (data?.words ?? []).filter((w) => selected.has(w.key)), [data, selected]);
   useEffect(() => {
-    if (selectedRows.length) {
-      const best = [...selectedRows].sort((a, b) => b.pre + b.post - (a.pre + a.post))[0];
-      setLabel(best.label);
-    }
+    if (selectedRows.length) setLabel([...selectedRows].sort((a, b) => total(b) - total(a))[0].label);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selected]);
 
@@ -373,9 +397,9 @@ function WordsTab({ eventId, blocks }: { eventId: string; blocks: Block[] }) {
     <div className="stack">
       <div className="row">
         <select value={blockId} onChange={(e) => setBlockId(e.target.value)} style={{ maxWidth: 320 }} aria-label="Blocco">
-          {blocks.map((b, i) => (
+          {wordBlocks.map((b) => (
             <option key={b.id} value={b.id}>
-              {i + 1}. {b.title}
+              {blocks.indexOf(b) + 1}. {b.title}
             </option>
           ))}
         </select>
@@ -395,8 +419,8 @@ function WordsTab({ eventId, blocks }: { eventId: string; blocks: Block[] }) {
       </div>
       <p className="small muted">
         Varianti come maiuscole, accenti e singolare/plurale sono già unite in automatico. Qui decidi tu le unioni di
-        significato (es. “utenti” in “identità”): valgono per inizio e fine del blocco e si possono sciogliere in qualsiasi
-        momento.
+        significato (es. “utenti” in “identità”): valgono per tutte le domande a parole del blocco e si possono sciogliere
+        in qualsiasi momento.
       </p>
       {error && <div className="alert warn">{error}</div>}
       {msg && <div className={`alert ${msg.kind}`}>{msg.text}</div>}
@@ -492,7 +516,7 @@ function WordsTab({ eventId, blocks }: { eventId: string; blocks: Block[] }) {
       <div className="card" style={{ overflowX: "auto" }}>
         {data && (
           <p className="small muted">
-            Risposte: {data.respondents.pre} all&apos;inizio, {data.respondents.post} alla fine · {data.words.length} voci
+            {data.columns.map((c) => `${c.label}: ${c.respondents} risposte`).join(" · ")} · {data.words.length} voci
           </p>
         )}
         <table className="table">
@@ -500,8 +524,11 @@ function WordsTab({ eventId, blocks }: { eventId: string; blocks: Block[] }) {
             <tr>
               <th style={{ width: 32 }} />
               <th>Voce</th>
-              <th className="num">Prima</th>
-              <th className="num">Dopo</th>
+              {data?.columns.map((c) => (
+                <th key={c.id} className="num">
+                  {c.label}
+                </th>
+              ))}
             </tr>
           </thead>
           <tbody>
@@ -526,13 +553,16 @@ function WordsTab({ eventId, blocks }: { eventId: string; blocks: Block[] }) {
                   <b>{w.label}</b>
                   {w.forms.length > 1 && <div className="tiny muted">{w.forms.join(" · ")}</div>}
                 </td>
-                <td className="num">{w.pre || ""}</td>
-                <td className="num">{w.post || ""}</td>
+                {data!.columns.map((c) => (
+                  <td key={c.id} className="num">
+                    {w.counts[c.id] || ""}
+                  </td>
+                ))}
               </tr>
             ))}
             {data && data.words.length === 0 && (
               <tr>
-                <td colSpan={4} className="muted">
+                <td colSpan={2 + data.columns.length} className="muted">
                   Ancora nessuna parola per questo blocco.
                 </td>
               </tr>
@@ -600,13 +630,209 @@ function QaTab({ eventId, items, refresh }: { eventId: string; items: QaItem[]; 
 
 /* ------------------------------------------------------------------ */
 
+interface EditQuestion {
+  id?: string;
+  key: string;
+  type: QType;
+  label: string;
+  prompt: string;
+  maxWords: number;
+  options: string[];
+  multiple: boolean;
+  correct: number[];
+  scaleMin: number;
+  scaleMax: number;
+  scaleMinLabel: string;
+  scaleMaxLabel: string;
+  inSummary: boolean;
+  respondents: number;
+  originalType?: QType;
+}
 interface EditBlock {
   id?: string;
+  key: string;
   title: string;
-  prePrompt: string;
-  postPrompt: string;
-  maxWords: number;
-  respondents: number;
+  questions: EditQuestion[];
+}
+
+let keySeq = 0;
+const newKey = () => `k${++keySeq}`;
+
+function toEdit(q: Q): EditQuestion {
+  return {
+    id: q.id,
+    key: q.id,
+    type: q.type,
+    label: q.label,
+    prompt: q.prompt,
+    maxWords: q.maxWords,
+    options: q.options.length ? q.options : ["", ""],
+    multiple: q.multiple,
+    correct: q.correct,
+    scaleMin: q.scaleMin,
+    scaleMax: q.scaleMax,
+    scaleMinLabel: q.scaleMinLabel,
+    scaleMaxLabel: q.scaleMaxLabel,
+    inSummary: q.inSummary,
+    respondents: q.respondents,
+    originalType: q.type,
+  };
+}
+
+function newEditQuestion(type: QType, blockTitle: string): EditQuestion {
+  const d = defaultQuestion(type, blockTitle);
+  return { ...d, key: newKey(), respondents: 0, options: d.options.length ? d.options : ["", ""] };
+}
+
+function moveItem<T>(list: T[], i: number, d: number): T[] {
+  const j = i + d;
+  if (j < 0 || j >= list.length) return list;
+  const n = [...list];
+  [n[i], n[j]] = [n[j], n[i]];
+  return n;
+}
+
+function QuestionEditor({
+  q,
+  index,
+  count,
+  onChange,
+  onMove,
+  onRemove,
+}: {
+  q: EditQuestion;
+  index: number;
+  count: number;
+  onChange: (patch: Partial<EditQuestion>) => void;
+  onMove: (d: number) => void;
+  onRemove: () => void;
+}) {
+  const hasOptions = q.type === "choice" || q.type === "quiz";
+  const typeChangedWithAnswers = q.originalType && q.originalType !== q.type && q.respondents > 0;
+
+  return (
+    <div className="q-editor stack" style={{ gap: 10 }}>
+      <div className="row">
+        <b className="small">{index + 1}.</b>
+        <select value={q.type} onChange={(e) => onChange({ type: e.target.value as QType })} style={{ width: "auto" }} aria-label="Tipo di domanda">
+          {QTYPES.map((t) => (
+            <option key={t.id} value={t.id}>
+              {t.label}
+            </option>
+          ))}
+        </select>
+        <input
+          type="text"
+          value={q.label}
+          onChange={(e) => onChange({ label: e.target.value })}
+          placeholder="Etichetta (es. Inizio)"
+          maxLength={30}
+          style={{ width: 170 }}
+          aria-label="Etichetta"
+        />
+        <label className="check small" style={{ alignItems: "center" }}>
+          <input type="checkbox" checked={q.inSummary} onChange={(e) => onChange({ inSummary: e.target.checked })} style={{ marginTop: 0 }} />
+          Nel riepilogo
+        </label>
+        <span style={{ flex: 1 }} />
+        <button className="btn sm" onClick={() => onMove(-1)} disabled={index === 0} aria-label="Sposta su">
+          ↑
+        </button>
+        <button className="btn sm" onClick={() => onMove(1)} disabled={index === count - 1} aria-label="Sposta giù">
+          ↓
+        </button>
+        <button className="btn sm danger" onClick={onRemove}>
+          Rimuovi{q.respondents ? ` (${q.respondents})` : ""}
+        </button>
+      </div>
+      <div className="tiny muted">{QTYPES.find((t) => t.id === q.type)?.hint}</div>
+      {typeChangedWithAnswers && (
+        <div className="alert warn small">Cambiando tipo, le {q.respondents} risposte già date a questa domanda verranno eliminate.</div>
+      )}
+      <input type="text" value={q.prompt} onChange={(e) => onChange({ prompt: e.target.value })} placeholder="Testo della domanda" aria-label="Testo della domanda" />
+
+      {q.type === "words" && (
+        <label className="field" style={{ maxWidth: 200 }}>
+          <span>Parole per persona</span>
+          <input type="number" min={1} max={10} value={q.maxWords} onChange={(e) => onChange({ maxWords: Number(e.target.value) })} />
+        </label>
+      )}
+
+      {hasOptions && (
+        <div className="stack" style={{ gap: 6 }}>
+          <span className="small" style={{ fontWeight: 600 }}>
+            Opzioni{q.type === "quiz" ? " (spunta quelle corrette)" : ""}
+          </span>
+          {q.options.map((o, i) => (
+            <div key={i} className="opt-row">
+              {q.type === "quiz" && (
+                <input
+                  type="checkbox"
+                  checked={q.correct.includes(i)}
+                  onChange={(e) =>
+                    onChange({ correct: e.target.checked ? [...q.correct, i] : q.correct.filter((c) => c !== i) })
+                  }
+                  aria-label={`Opzione ${i + 1} corretta`}
+                  style={{ width: 18, height: 18 }}
+                />
+              )}
+              <input
+                type="text"
+                value={o}
+                onChange={(e) => onChange({ options: q.options.map((x, j) => (j === i ? e.target.value : x)) })}
+                placeholder={`Opzione ${i + 1}`}
+                aria-label={`Opzione ${i + 1}`}
+              />
+              <button
+                className="btn sm ghost"
+                disabled={q.options.length <= 2}
+                onClick={() =>
+                  onChange({
+                    options: q.options.filter((_, j) => j !== i),
+                    correct: q.correct.filter((c) => c !== i).map((c) => (c > i ? c - 1 : c)),
+                  })
+                }
+                aria-label={`Rimuovi opzione ${i + 1}`}
+              >
+                ✕
+              </button>
+            </div>
+          ))}
+          <div className="row">
+            <button className="btn sm" disabled={q.options.length >= 12} onClick={() => onChange({ options: [...q.options, ""] })}>
+              + Opzione
+            </button>
+            <label className="check small" style={{ alignItems: "center" }}>
+              <input type="checkbox" checked={q.multiple} onChange={(e) => onChange({ multiple: e.target.checked })} style={{ marginTop: 0 }} />
+              Più risposte ammesse
+            </label>
+          </div>
+          {q.respondents > 0 && <p className="tiny muted">Se cambi l&apos;ordine delle opzioni, le risposte già date restano legate alla posizione.</p>}
+        </div>
+      )}
+
+      {q.type === "scale" && (
+        <div className="row">
+          <label className="field" style={{ width: 90 }}>
+            <span>Da</span>
+            <input type="number" min={0} max={9} value={q.scaleMin} onChange={(e) => onChange({ scaleMin: Number(e.target.value) })} />
+          </label>
+          <label className="field" style={{ width: 90 }}>
+            <span>A</span>
+            <input type="number" min={1} max={10} value={q.scaleMax} onChange={(e) => onChange({ scaleMax: Number(e.target.value) })} />
+          </label>
+          <label className="field" style={{ flex: 1, minWidth: 140 }}>
+            <span>Etichetta del minimo</span>
+            <input type="text" value={q.scaleMinLabel} onChange={(e) => onChange({ scaleMinLabel: e.target.value })} placeholder="Poco" />
+          </label>
+          <label className="field" style={{ flex: 1, minWidth: 140 }}>
+            <span>Etichetta del massimo</span>
+            <input type="text" value={q.scaleMaxLabel} onChange={(e) => onChange({ scaleMaxLabel: e.target.value })} placeholder="Molto" />
+          </label>
+        </div>
+      )}
+    </div>
+  );
 }
 
 function SettingsTab({ data, refresh }: { data: EventState; refresh: () => Promise<void> }) {
@@ -616,40 +842,51 @@ function SettingsTab({ data, refresh }: { data: EventState; refresh: () => Promi
   const [qaEnabled, setQaEnabled] = useState(ev.qaEnabled);
   const [qaModerated, setQaModerated] = useState(ev.qaModerated);
   const [blocks, setBlocks] = useState<EditBlock[]>(() =>
-    data.blocks.map((b) => ({
-      id: b.id,
-      title: b.title,
-      prePrompt: b.pre.prompt,
-      postPrompt: b.post.prompt,
-      maxWords: b.pre.maxWords,
-      respondents: b.pre.respondents + b.post.respondents,
-    })),
+    data.blocks.map((b) => ({ id: b.id, key: b.id, title: b.title, questions: b.questions.map(toEdit) })),
   );
+  const [addType, setAddType] = useState<Record<string, QType>>({});
   const [busy, setBusy] = useState(false);
+  const [dirty, setDirty] = useState(false);
   const [msg, setMsg] = useState<{ kind: "ok" | "error"; text: string } | null>(null);
   const [resetCode, setResetCode] = useState("");
   const [resetAliases, setResetAliases] = useState(false);
 
-  const update = (i: number, patch: Partial<EditBlock>) => setBlocks((bs) => bs.map((b, j) => (j === i ? { ...b, ...patch } : b)));
-  const move = (i: number, d: number) =>
-    setBlocks((bs) => {
-      const n = [...bs];
-      const j = i + d;
-      if (j < 0 || j >= n.length) return bs;
-      [n[i], n[j]] = [n[j], n[i]];
-      return n;
-    });
+  const editBlocks = (fn: (bs: EditBlock[]) => EditBlock[]) => {
+    setBlocks(fn);
+    setDirty(true);
+  };
+  const editQuestion = (bi: number, qi: number, patch: Partial<EditQuestion>) =>
+    editBlocks((bs) => bs.map((b, i) => (i !== bi ? b : { ...b, questions: b.questions.map((q, j) => (j === qi ? { ...q, ...patch } : q)) })));
 
   async function save() {
-    const removed = data.blocks.filter((b) => !blocks.some((x) => x.id === b.id));
-    const lost = removed.reduce((s, b) => s + b.pre.respondents + b.post.respondents, 0);
-    if (lost > 0 && !confirm(`Stai eliminando blocchi con ${lost} risposte: verranno cancellate. Continuare?`)) return;
+    const kept = new Set(blocks.flatMap((b) => b.questions.map((q) => q.id)).filter(Boolean));
+    const lost = data.blocks.flatMap((b) => b.questions).filter((q) => !kept.has(q.id)).reduce((s, q) => s + q.respondents, 0);
+    const retyped = blocks.flatMap((b) => b.questions).filter((q) => q.originalType && q.originalType !== q.type).reduce((s, q) => s + q.respondents, 0);
+    if (lost + retyped > 0 && !confirm(`Verranno eliminate ${lost + retyped} risposte (domande rimosse o cambiate di tipo). Continuare?`)) return;
     setBusy(true);
     setMsg(null);
     try {
-      await postJson(`/api/admin/events/${ev.id}`, { title, qaEnabled, qaModerated, blocks }, "PATCH");
+      await postJson(
+        `/api/admin/events/${ev.id}`,
+        {
+          title,
+          qaEnabled,
+          qaModerated,
+          blocks: blocks.map((b) => ({
+            id: b.id,
+            title: b.title,
+            questions: b.questions.map((q) => ({ ...q, options: q.options.filter((o) => o.trim()) })),
+          })),
+        },
+        "PATCH",
+      );
+      // riparte dai dati del server, così le domande nuove hanno il loro id
+      const fresh = (await (await fetch(`/api/admin/events/${ev.id}`, { cache: "no-store" })).json()) as EventState;
+      setBlocks(fresh.blocks.map((b) => ({ id: b.id, key: b.id, title: b.title, questions: b.questions.map(toEdit) })));
       await refresh();
+      setDirty(false);
       setMsg({ kind: "ok", text: "Salvato." });
+      router.refresh();
     } catch (e) {
       setMsg({ kind: "error", text: e instanceof Error ? e.message : "Errore" });
     } finally {
@@ -657,16 +894,39 @@ function SettingsTab({ data, refresh }: { data: EventState; refresh: () => Promi
     }
   }
 
+  const saveBar = (
+    <div className="row">
+      <button className="btn primary" disabled={busy} onClick={save}>
+        Salva impostazioni e domande
+      </button>
+      {dirty && <span className="small muted">Modifiche non salvate</span>}
+    </div>
+  );
+
   return (
     <div className="stack">
       <div className="card stack">
         <h2>Evento</h2>
         <label className="field">
           <span>Titolo</span>
-          <input type="text" value={title} onChange={(e) => setTitle(e.target.value)} />
+          <input
+            type="text"
+            value={title}
+            onChange={(e) => {
+              setTitle(e.target.value);
+              setDirty(true);
+            }}
+          />
         </label>
         <label className="check">
-          <input type="checkbox" checked={qaEnabled} onChange={(e) => setQaEnabled(e.target.checked)} />
+          <input
+            type="checkbox"
+            checked={qaEnabled}
+            onChange={(e) => {
+              setQaEnabled(e.target.checked);
+              setDirty(true);
+            }}
+          />
           <span>
             <b>Domande dal pubblico (Q&amp;A)</b>
             <br />
@@ -675,7 +935,14 @@ function SettingsTab({ data, refresh }: { data: EventState; refresh: () => Promi
         </label>
         {qaEnabled && (
           <label className="check">
-            <input type="checkbox" checked={qaModerated} onChange={(e) => setQaModerated(e.target.checked)} />
+            <input
+              type="checkbox"
+              checked={qaModerated}
+              onChange={(e) => {
+                setQaModerated(e.target.checked);
+                setDirty(true);
+              }}
+            />
             <span>
               <b>Approva le domande prima di mostrarle</b>
               <br />
@@ -686,51 +953,88 @@ function SettingsTab({ data, refresh }: { data: EventState; refresh: () => Promi
       </div>
 
       <div className="card stack">
-        <h2>Blocchi</h2>
-        {blocks.map((b, i) => (
-          <div key={b.id ?? `new-${i}`} className="stack" style={{ borderTop: i ? "1px solid var(--border)" : 0, paddingTop: i ? 16 : 0 }}>
+        <div className="spread">
+          <h2 style={{ margin: 0 }}>Blocchi e domande</h2>
+          {saveBar}
+        </div>
+        <p className="small muted">
+          Ogni blocco (o sezione) può avere tutte le domande che vuoi, di qualsiasi tipo. Per una domanda singola a inizio o
+          fine evento, ad esempio il gradimento, crea un blocco apposito come “Apertura” o “Chiusura”. Le domande con{" "}
+          <b>Nel riepilogo</b> finiscono nella pagina e nella schermata finale.
+        </p>
+        {blocks.map((b, bi) => (
+          <div key={b.key} className="stack" style={{ borderTop: bi ? "1px solid var(--border)" : 0, paddingTop: bi ? 16 : 0 }}>
             <div className="row">
-              <span className="block-num">{i + 1}</span>
-              <input type="text" value={b.title} onChange={(e) => update(i, { title: e.target.value })} style={{ flex: 1, width: "auto" }} aria-label="Titolo blocco" />
-              <button className="btn sm" onClick={() => move(i, -1)} disabled={i === 0} aria-label="Sposta su">
+              <span className="block-num">{bi + 1}</span>
+              <input
+                type="text"
+                value={b.title}
+                onChange={(e) => editBlocks((bs) => bs.map((x, i) => (i === bi ? { ...x, title: e.target.value } : x)))}
+                style={{ flex: 1, width: "auto", fontWeight: 700 }}
+                aria-label="Titolo blocco"
+              />
+              <button className="btn sm" onClick={() => editBlocks((bs) => moveItem(bs, bi, -1))} disabled={bi === 0} aria-label="Sposta blocco su">
                 ↑
               </button>
-              <button className="btn sm" onClick={() => move(i, 1)} disabled={i === blocks.length - 1} aria-label="Sposta giù">
+              <button
+                className="btn sm"
+                onClick={() => editBlocks((bs) => moveItem(bs, bi, 1))}
+                disabled={bi === blocks.length - 1}
+                aria-label="Sposta blocco giù"
+              >
                 ↓
               </button>
-              <button className="btn sm danger" onClick={() => setBlocks((bs) => bs.filter((_, j) => j !== i))}>
-                Rimuovi{b.respondents ? ` (${b.respondents} risposte)` : ""}
+              <button className="btn sm danger" onClick={() => editBlocks((bs) => bs.filter((_, i) => i !== bi))}>
+                Rimuovi blocco
               </button>
             </div>
-            <label className="field">
-              <span>Domanda di inizio</span>
-              <input type="text" value={b.prePrompt} onChange={(e) => update(i, { prePrompt: e.target.value })} placeholder="Lascia vuoto per il testo predefinito" />
-            </label>
-            <label className="field">
-              <span>Domanda di fine</span>
-              <input type="text" value={b.postPrompt} onChange={(e) => update(i, { postPrompt: e.target.value })} placeholder="Lascia vuoto per il testo predefinito" />
-            </label>
-            <label className="field" style={{ maxWidth: 200 }}>
-              <span>Parole per persona</span>
-              <input type="number" min={1} max={10} value={b.maxWords} onChange={(e) => update(i, { maxWords: Number(e.target.value) })} />
-            </label>
+            <div>
+              {b.questions.map((q, qi) => (
+                <QuestionEditor
+                  key={q.key}
+                  q={q}
+                  index={qi}
+                  count={b.questions.length}
+                  onChange={(patch) => editQuestion(bi, qi, patch)}
+                  onMove={(d) => editBlocks((bs) => bs.map((x, i) => (i === bi ? { ...x, questions: moveItem(x.questions, qi, d) } : x)))}
+                  onRemove={() => editBlocks((bs) => bs.map((x, i) => (i === bi ? { ...x, questions: x.questions.filter((_, j) => j !== qi) } : x)))}
+                />
+              ))}
+              {b.questions.length === 0 && <p className="small muted">Nessuna domanda in questo blocco.</p>}
+            </div>
+            <div className="row">
+              <select
+                value={addType[b.key] ?? "words"}
+                onChange={(e) => setAddType((m) => ({ ...m, [b.key]: e.target.value as QType }))}
+                style={{ width: "auto" }}
+                aria-label="Tipo della nuova domanda"
+              >
+                {QTYPES.map((t) => (
+                  <option key={t.id} value={t.id}>
+                    {t.label}
+                  </option>
+                ))}
+              </select>
+              <button
+                className="btn"
+                onClick={() =>
+                  editBlocks((bs) =>
+                    bs.map((x, i) => (i === bi ? { ...x, questions: [...x.questions, newEditQuestion(addType[b.key] ?? "words", x.title)] } : x)),
+                  )
+                }
+              >
+                + Aggiungi domanda
+              </button>
+            </div>
           </div>
         ))}
         <div>
-          <button
-            className="btn"
-            onClick={() => setBlocks((bs) => [...bs, { title: "Nuovo blocco", prePrompt: "", postPrompt: "", maxWords: 3, respondents: 0 }])}
-          >
+          <button className="btn" onClick={() => editBlocks((bs) => [...bs, { key: newKey(), title: "Nuovo blocco", questions: [] }])}>
             + Aggiungi blocco
           </button>
         </div>
-      </div>
-
-      {msg && <div className={`alert ${msg.kind}`}>{msg.text}</div>}
-      <div>
-        <button className="btn primary" disabled={busy} onClick={save}>
-          Salva impostazioni e blocchi
-        </button>
+        {msg && <div className={`alert ${msg.kind}`}>{msg.text}</div>}
+        {saveBar}
       </div>
 
       <div className="card stack">
@@ -738,7 +1042,7 @@ function SettingsTab({ data, refresh }: { data: EventState; refresh: () => Promi
         <p className="small muted">CSV con separatore “;”, si apre direttamente in Excel.</p>
         <div className="row">
           <a className="btn" href={`/api/admin/events/${ev.id}/export?type=summary`}>
-            Classifica per blocco
+            Risultati di tutte le domande
           </a>
           <a className="btn" href={`/api/admin/events/${ev.id}/export?type=raw`}>
             Tutte le risposte
@@ -749,8 +1053,8 @@ function SettingsTab({ data, refresh }: { data: EventState; refresh: () => Promi
       <div className="card stack" style={{ borderColor: "var(--danger)" }}>
         <h2>Zona pericolosa</h2>
         <p className="small">
-          <b>Azzera le prove</b>: cancella partecipanti, risposte e domande del pubblico. Blocchi e impostazioni restano. Utile
-          dopo i test, prima dell&apos;evento vero.
+          <b>Azzera le prove</b>: cancella partecipanti, risposte e domande del pubblico. Blocchi e domande restano. Utile dopo
+          i test, prima dell&apos;evento vero.
         </p>
         <label className="check small">
           <input type="checkbox" checked={resetAliases} onChange={(e) => setResetAliases(e.target.checked)} />

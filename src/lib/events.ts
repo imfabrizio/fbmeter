@@ -1,18 +1,13 @@
 import { and, asc, count, desc, eq, inArray, sql } from "drizzle-orm";
 import { getDb, schema } from "@/db";
 import { sha256 } from "./crypto";
+import { computeResult, type AnswerRow, type QuestionConfig, type QuestionResult } from "./questions";
 import { HttpError } from "./session";
-import { aggregate, topN, type AliasMap, type WordStat } from "./words";
+import type { AliasMap, WordStat } from "./words";
 
 export type EventRow = typeof schema.events.$inferSelect;
 export type BlockRow = typeof schema.blocks.$inferSelect;
 export type QuestionRow = typeof schema.questions.$inferSelect;
-export type Phase = "pre" | "post";
-
-export const defaultPrompt = (title: string, phase: Phase) =>
-  phase === "pre"
-    ? `Quando senti "${title}", quali parole ti vengono in mente?`
-    : `Ora che ne abbiamo parlato: quali parole associ a "${title}"?`;
 
 export async function eventByCode(code: string): Promise<EventRow> {
   const [ev] = await getDb()
@@ -31,6 +26,7 @@ export async function eventById(id: string): Promise<EventRow> {
   return ev;
 }
 
+/** Blocchi in ordine, ciascuno con le sue domande in ordine. */
 export async function blocksWithQuestions(eventId: string) {
   const db = getDb();
   const blocks = await db
@@ -38,15 +34,30 @@ export async function blocksWithQuestions(eventId: string) {
     .from(schema.blocks)
     .where(eq(schema.blocks.eventId, eventId))
     .orderBy(asc(schema.blocks.position));
-  const questions = await db.select().from(schema.questions).where(eq(schema.questions.eventId, eventId));
-  return blocks.map((b) => ({
-    ...b,
-    pre: questions.find((q) => q.blockId === b.id && q.phase === "pre")!,
-    post: questions.find((q) => q.blockId === b.id && q.phase === "post")!,
-  }));
+  const questions = await db
+    .select()
+    .from(schema.questions)
+    .where(eq(schema.questions.eventId, eventId))
+    .orderBy(asc(schema.questions.position));
+  return blocks.map((b) => ({ ...b, questions: questions.filter((q) => q.blockId === b.id) }));
 }
 
 export type BlockWithQuestions = Awaited<ReturnType<typeof blocksWithQuestions>>[number];
+
+/** Trova blocco, indice e domanda a partire dall'id della domanda. */
+export function locateQuestion(blocks: BlockWithQuestions[], questionId: string | null) {
+  if (!questionId) return null;
+  for (const [blockIndex, block] of blocks.entries()) {
+    const question = block.questions.find((q) => q.id === questionId);
+    if (question) return { block, blockIndex, question };
+  }
+  return null;
+}
+
+/** Etichetta di una domanda per la regia: quella scelta, o "Domanda N". */
+export function questionLabel(q: QuestionRow, block: BlockWithQuestions) {
+  return q.label || `Domanda ${block.questions.findIndex((x) => x.id === q.id) + 1}`;
+}
 
 /** Partecipante identificato dal token che il telefono invia nell'header. */
 export async function participantFromRequest(req: Request, eventId: string) {
@@ -59,7 +70,6 @@ export async function participantFromRequest(req: Request, eventId: string) {
     .where(and(eq(schema.participants.tokenHash, sha256(token)), eq(schema.participants.eventId, eventId)))
     .limit(1);
   if (!p) return null;
-  // aggiorna "visto di recente" al massimo una volta al minuto
   if (Date.now() - p.lastSeenAt.getTime() > 60_000) {
     await db.update(schema.participants).set({ lastSeenAt: new Date() }).where(eq(schema.participants.id, p.id));
   }
@@ -72,7 +82,7 @@ export async function requireParticipant(req: Request, eventId: string) {
   return p;
 }
 
-async function aliasMaps(blockIds: string[]): Promise<Map<string, AliasMap>> {
+export async function aliasMaps(blockIds: string[]): Promise<Map<string, AliasMap>> {
   const out = new Map<string, AliasMap>();
   if (!blockIds.length) return out;
   const rows = await getDb().select().from(schema.aliases).where(inArray(schema.aliases.blockId, blockIds));
@@ -83,62 +93,77 @@ async function aliasMaps(blockIds: string[]): Promise<Map<string, AliasMap>> {
   return out;
 }
 
-export interface QuestionStats {
-  questionId: string;
-  respondents: number;
-  words: WordStat[];
-}
-
-/** Statistiche di più domande in un colpo solo. */
-export async function questionStats(questionIds: string[]): Promise<Map<string, QuestionStats>> {
-  const out = new Map<string, QuestionStats>();
-  if (!questionIds.length) return out;
-  const db = getDb();
-  const qs = await db.select().from(schema.questions).where(inArray(schema.questions.id, questionIds));
-  const rows = await db
-    .select({ questionId: schema.answers.questionId, words: schema.answers.words })
+/** Risultati di più domande in un colpo solo. */
+export async function questionResults(questions: QuestionRow[]): Promise<Map<string, QuestionResult>> {
+  const out = new Map<string, QuestionResult>();
+  if (!questions.length) return out;
+  const rows = await getDb()
+    .select({
+      questionId: schema.answers.questionId,
+      words: schema.answers.words,
+      choices: schema.answers.choices,
+      scale: schema.answers.scale,
+      textValue: schema.answers.textValue,
+      updatedAt: schema.answers.updatedAt,
+      nickname: schema.participants.nickname,
+    })
     .from(schema.answers)
-    .where(inArray(schema.answers.questionId, questionIds));
-  const maps = await aliasMaps([...new Set(qs.map((q) => q.blockId))]);
-  for (const q of qs) {
-    const words = rows.filter((r) => r.questionId === q.id).map((r) => r.words);
-    out.set(q.id, {
-      questionId: q.id,
-      respondents: words.length,
-      words: aggregate(words, maps.get(q.blockId)),
-    });
+    .innerJoin(schema.participants, eq(schema.participants.id, schema.answers.participantId))
+    .where(inArray(schema.answers.questionId, questions.map((q) => q.id)));
+  const maps = await aliasMaps([...new Set(questions.map((q) => q.blockId))]);
+  for (const q of questions) {
+    const answers: AnswerRow[] = rows.filter((r) => r.questionId === q.id);
+    out.set(q.id, computeResult(q as QuestionConfig, answers, maps.get(q.blockId)));
   }
   return out;
+}
+
+export interface SummaryItem {
+  questionId: string;
+  label: string;
+  prompt: string;
+  result: QuestionResult;
+  /** Solo parole: la domanda a parole precedente nello stesso blocco, per il confronto prima/dopo. */
+  before?: { label: string; respondents: number; top: WordStat[] };
+  /** Solo parole: voci del podio che non erano nel podio della domanda precedente. */
+  newWords?: string[];
 }
 
 export interface BlockSummary {
   id: string;
   position: number;
   title: string;
-  pre: { respondents: number; top: WordStat[]; all: WordStat[] };
-  post: { respondents: number; top: WordStat[]; all: WordStat[] };
-  /** Parole del podio finale che non erano nel podio iniziale. */
-  newInPost: string[];
+  items: SummaryItem[];
 }
 
-export async function eventSummary(eventId: string): Promise<BlockSummary[]> {
+/** Riepilogo finale: per ogni blocco, le domande segnate "nel riepilogo". */
+export async function eventSummary(eventId: string, opts: { all?: boolean } = {}): Promise<BlockSummary[]> {
   const blocks = await blocksWithQuestions(eventId);
-  const stats = await questionStats(blocks.flatMap((b) => [b.pre.id, b.post.id]));
-  return blocks.map((b) => {
-    const pre = stats.get(b.pre.id)!;
-    const post = stats.get(b.post.id)!;
-    const preTop = topN(pre.words);
-    const postTop = topN(post.words);
-    const preKeys = new Set(preTop.map((w) => w.key));
-    return {
-      id: b.id,
-      position: b.position,
-      title: b.title,
-      pre: { respondents: pre.respondents, top: preTop, all: pre.words },
-      post: { respondents: post.respondents, top: postTop, all: post.words },
-      newInPost: postTop.filter((w) => !preKeys.has(w.key)).map((w) => w.label),
-    };
-  });
+  const results = await questionResults(blocks.flatMap((b) => b.questions));
+  return blocks
+    .map((b) => {
+      const items: SummaryItem[] = [];
+      for (const [i, q] of b.questions.entries()) {
+        if (!opts.all && !q.inSummary) continue;
+        const result = results.get(q.id)!;
+        const item: SummaryItem = { questionId: q.id, label: questionLabel(q, b), prompt: q.prompt, result };
+        if (result.type === "words") {
+          const prev = [...b.questions.slice(0, i)].reverse().find((x) => x.type === "words");
+          if (prev) {
+            const pr = results.get(prev.id)!;
+            if (pr.type === "words") {
+              const top = pr.words.slice(0, 3);
+              const keys = new Set(top.map((w) => w.key));
+              item.before = { label: questionLabel(prev, b), respondents: pr.respondents, top };
+              item.newWords = result.words.slice(0, 3).filter((w) => !keys.has(w.key)).map((w) => w.label);
+            }
+          }
+        }
+        items.push(item);
+      }
+      return { id: b.id, position: b.position, title: b.title, items };
+    })
+    .filter((b) => b.items.length > 0 || opts.all);
 }
 
 export async function participantCount(eventId: string): Promise<number> {
@@ -197,7 +222,9 @@ export async function qaList(eventId: string, opts: { forParticipantId?: string;
     }))
     .sort(
       (a, b) =>
-        (opts.moderator ? statusOrder[a.status] - statusOrder[b.status] : (a.status === "answered" ? 1 : 0) - (b.status === "answered" ? 1 : 0)) ||
+        (opts.moderator
+          ? statusOrder[a.status] - statusOrder[b.status]
+          : (a.status === "answered" ? 1 : 0) - (b.status === "answered" ? 1 : 0)) ||
         b.votes - a.votes ||
         b.createdAt.localeCompare(a.createdAt),
     );

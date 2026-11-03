@@ -8,6 +8,7 @@ export function CreateEventForm() {
   const router = useRouter();
   const [title, setTitle] = useState("");
   const [blocks, setBlocks] = useState("");
+  const [template, setTemplate] = useState("prepost");
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
 
@@ -19,6 +20,7 @@ export function CreateEventForm() {
       const r = await postJson<{ id: string }>("/api/admin/events", {
         title,
         blocks: blocks.split("\n").map((s) => s.trim()).filter(Boolean),
+        template,
       });
       router.push(`/admin/events/${r.id}`);
     } catch (e) {
@@ -35,9 +37,21 @@ export function CreateEventForm() {
         <input type="text" value={title} onChange={(e) => setTitle(e.target.value)} placeholder="Es. Security Day con il partner" required />
       </label>
       <label className="field">
-        <span>Blocchi, uno per riga (ognuno avrà un sondaggio di inizio e uno di fine)</span>
+        <span>Blocchi o sezioni, uno per riga</span>
         <textarea rows={6} value={blocks} onChange={(e) => setBlocks(e.target.value)} placeholder={"Entra ID\nSharePoint\nDefender\nFortinet\nIntune\nAzure"} />
       </label>
+      <label className="field">
+        <span>Domande di partenza per ogni blocco</span>
+        <select value={template} onChange={(e) => setTemplate(e.target.value)}>
+          <option value="prepost">Parole a inizio e fine blocco (confronto prima/dopo)</option>
+          <option value="words">Una domanda a parole per blocco</option>
+          <option value="empty">Nessuna: aggiungo io le domande</option>
+        </select>
+      </label>
+      <p className="tiny muted">
+        È solo un punto di partenza: dopo, in Impostazioni, puoi aggiungere, togliere e cambiare tipo a ogni domanda
+        (parole, scelta multipla, scala, risposta aperta, quiz).
+      </p>
       {err && <div className="alert error">{err}</div>}
       <div>
         <button className="btn primary" disabled={busy || !title.trim()}>

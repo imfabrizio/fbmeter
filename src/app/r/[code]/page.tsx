@@ -1,14 +1,16 @@
 import { eq } from "drizzle-orm";
 import type { Metadata } from "next";
+import { ResultView } from "@/components/ResultView";
 import { getDb, schema } from "@/db";
 import { eventSummary } from "@/lib/events";
+import { slimResult } from "@/lib/questions";
 import { currentUser, isOperator } from "@/lib/session";
 
 export const dynamic = "force-dynamic";
 
 export const metadata: Metadata = { title: "Risultati" };
 
-/** Pagina finale: le 3 parole dominanti del sondaggio "dopo" per ogni blocco, con il confronto col "prima". */
+/** Pagina finale: per ogni blocco, le domande che la regia ha segnato "nel riepilogo". */
 export default async function ResultsPage({ params }: { params: Promise<{ code: string }> }) {
   const { code } = await params;
   const [ev] = await getDb()
@@ -34,6 +36,9 @@ export default async function ResultsPage({ params }: { params: Promise<{ code: 
   }
 
   const summary = await eventSummary(ev.id);
+  const wordRows = summary.flatMap((b) =>
+    b.items.filter((it) => it.result.type === "words").map((it) => ({ block: b, item: it })),
+  );
 
   return (
     <main className="container stack">
@@ -41,37 +46,36 @@ export default async function ResultsPage({ params }: { params: Promise<{ code: 
         <div className="small muted">Risultati</div>
         <h1>{ev.title}</h1>
         {!ev.resultsPublished && <div className="alert warn">Anteprima per gli operatori: i risultati non sono ancora pubblici.</div>}
-        <p className="muted">
-          Per ogni argomento, le tre parole più scritte <b>dopo</b> l&apos;intervento, confrontate con quelle di inizio blocco.
-          Le parole evidenziate sono entrate nel podio solo dopo la spiegazione.
-        </p>
       </div>
 
-      <section className="card">
-        <h2>In sintesi</h2>
-        <table className="table">
-          <thead>
-            <tr>
-              <th>Argomento</th>
-              <th>1ª</th>
-              <th>2ª</th>
-              <th>3ª</th>
-            </tr>
-          </thead>
-          <tbody>
-            {summary.map((b) => (
-              <tr key={b.id}>
-                <td>
-                  <b>{b.title}</b>
-                </td>
-                {[0, 1, 2].map((i) => (
-                  <td key={i}>{b.post.top[i]?.label ?? <span className="muted">—</span>}</td>
-                ))}
+      {wordRows.length > 0 && (
+        <section className="card" style={{ overflowX: "auto" }}>
+          <h2>In sintesi: le parole più scritte</h2>
+          <table className="table">
+            <thead>
+              <tr>
+                <th>Argomento</th>
+                <th>1ª</th>
+                <th>2ª</th>
+                <th>3ª</th>
               </tr>
-            ))}
-          </tbody>
-        </table>
-      </section>
+            </thead>
+            <tbody>
+              {wordRows.map(({ block, item }) => (
+                <tr key={item.questionId}>
+                  <td>
+                    <b>{block.title}</b>
+                    {block.items.length > 1 && <div className="tiny muted">{item.label}</div>}
+                  </td>
+                  {[0, 1, 2].map((i) => (
+                    <td key={i}>{item.result.type === "words" && item.result.words[i] ? item.result.words[i].label : <span className="muted">—</span>}</td>
+                  ))}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </section>
+      )}
 
       <div className="grid">
         {summary.map((b) => (
@@ -80,49 +84,74 @@ export default async function ResultsPage({ params }: { params: Promise<{ code: 
               <span className="block-num">{b.position + 1}</span>
               {b.title}
             </h2>
-            <div>
-              <div className="small muted">Dopo · {b.post.respondents} risposte</div>
-              {b.post.top.length ? (
-                <ol className="rank">
-                  {b.post.top.map((w) => (
-                    <li key={w.key}>
-                      <b>
-                        {w.label}
-                        {b.newInPost.includes(w.label) && <span className="badge accent" style={{ marginLeft: 6 }}>nuova</span>}
-                      </b>
-                      <span className="muted">{w.count}</span>
-                    </li>
-                  ))}
-                </ol>
-              ) : (
-                <p className="muted">Nessuna risposta.</p>
-              )}
-            </div>
-            <div>
-              <div className="small muted">Prima · {b.pre.respondents} risposte</div>
-              <div className="podium" style={{ marginTop: 6 }}>
-                {b.pre.top.length ? (
-                  b.pre.top.map((w) => (
-                    <span key={w.key} className="pill muted-pill">
-                      {w.label} <small>{w.count}</small>
-                    </span>
-                  ))
+            {b.items.map((it) => (
+              <div key={it.questionId} className="stack" style={{ gap: 8 }}>
+                <div>
+                  <div className="small muted">
+                    {it.label} · {it.result.respondents} risposte
+                  </div>
+                  <div className="small">{it.prompt}</div>
+                </div>
+                {it.result.type === "words" ? (
+                  <>
+                    {it.result.words.length ? (
+                      <ol className="rank">
+                        {it.result.words.slice(0, 3).map((w) => (
+                          <li key={w.key}>
+                            <b>
+                              {w.label}
+                              {it.newWords?.includes(w.label) && (
+                                <span className="badge accent" style={{ marginLeft: 6 }}>
+                                  nuova
+                                </span>
+                              )}
+                            </b>
+                            <span className="muted">{w.count}</span>
+                          </li>
+                        ))}
+                      </ol>
+                    ) : (
+                      <p className="muted">Nessuna risposta.</p>
+                    )}
+                    {it.before && (
+                      <div>
+                        <div className="small muted">
+                          {it.before.label} · {it.before.respondents} risposte
+                        </div>
+                        <div className="podium" style={{ marginTop: 6 }}>
+                          {it.before.top.length ? (
+                            it.before.top.map((w) => (
+                              <span key={w.key} className="pill muted-pill">
+                                {w.label} <small>{w.count}</small>
+                              </span>
+                            ))
+                          ) : (
+                            <span className="muted small">—</span>
+                          )}
+                        </div>
+                      </div>
+                    )}
+                    {it.result.words.length > 3 && (
+                      <details>
+                        <summary className="small">Tutte le parole ({it.result.words.length})</summary>
+                        <p className="small" style={{ marginTop: 8 }}>
+                          {it.result.words.map((w) => `${w.label} (${w.count})`).join(" · ")}
+                        </p>
+                      </details>
+                    )}
+                  </>
                 ) : (
-                  <span className="muted small">—</span>
+                  <ResultView result={slimResult(it.result)} />
                 )}
               </div>
-            </div>
-            {b.post.all.length > 3 && (
-              <details>
-                <summary className="small">Tutte le parole del “dopo” ({b.post.all.length})</summary>
-                <p className="small" style={{ marginTop: 8 }}>
-                  {b.post.all.map((w) => `${w.label} (${w.count})`).join(" · ")}
-                </p>
-              </details>
-            )}
+            ))}
           </section>
         ))}
       </div>
+      {summary.length === 0 && <p className="muted">Nessuna domanda è stata segnata per il riepilogo.</p>}
+      {wordRows.some((r) => r.item.newWords?.length) && (
+        <p className="small muted">“Nuova” indica una parola entrata nel podio solo rispetto alla domanda a parole precedente dello stesso blocco.</p>
+      )}
     </main>
   );
 }

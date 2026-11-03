@@ -17,17 +17,34 @@ interface State {
   event: { title: string; code: string; qaEnabled: boolean; resultsPublished: boolean };
   me: { nickname: string } | null;
   tokenRejected?: boolean;
-  active: {
-    id: string;
-    phase: "pre" | "post";
-    prompt: string;
-    maxWords: number;
-    blockTitle: string;
-    blockIndex: number;
-    blockCount: number;
-    myWords: string[] | null;
-  } | null;
+  active: ActiveQuestion | null;
   qa?: QaItem[];
+}
+
+interface MyAnswer {
+  words?: string[];
+  choices?: number[];
+  value?: number | null;
+  text?: string | null;
+}
+
+interface ActiveQuestion {
+  id: string;
+  type: "words" | "choice" | "scale" | "open" | "quiz";
+  label: string;
+  prompt: string;
+  maxWords: number;
+  options: string[];
+  multiple: boolean;
+  scaleMin: number;
+  scaleMax: number;
+  scaleMinLabel: string;
+  scaleMaxLabel: string;
+  correct: number[] | null;
+  blockTitle: string;
+  blockIndex: number;
+  blockCount: number;
+  myAnswer: MyAnswer | null;
 }
 
 const storageKey = (code: string) => `fbmeter:${code}`;
@@ -211,21 +228,28 @@ function PollPanel({
   onChange: () => Promise<void>;
 }) {
   const q = state.active;
-  const [values, setValues] = useState<string[]>([]);
+  const [words, setWords] = useState<string[]>([]);
+  const [choices, setChoices] = useState<number[]>([]);
+  const [value, setValue] = useState<number | null>(null);
+  const [text, setText] = useState("");
   const [editing, setEditing] = useState(false);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
 
-  // nuova domanda → campi vuoti
+  // nuova domanda → campi ripartono dalla risposta salvata (o vuoti)
   const qid = q?.id ?? null;
   useEffect(() => {
-    setValues(q ? Array.from({ length: q.maxWords }, (_, i) => q.myWords?.[i] ?? "") : []);
+    const a = q?.myAnswer;
+    setWords(q ? Array.from({ length: q.maxWords }, (_, i) => a?.words?.[i] ?? "") : []);
+    setChoices(a?.choices ?? []);
+    setValue(a?.value ?? null);
+    setText(a?.text ?? "");
     setEditing(false);
     setErr(null);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [qid]);
 
-  const filled = useMemo(() => values.filter((v) => v.trim()).length, [values]);
+  const filled = useMemo(() => words.filter((v) => v.trim()).length, [words]);
 
   if (!q) {
     return (
@@ -237,14 +261,14 @@ function PollPanel({
     );
   }
 
-  const answered = q.myWords && !editing;
+  const revealed = q.type === "quiz" && q.correct !== null;
+  const answered = !!q.myAnswer && !editing;
 
-  async function submit(e: React.FormEvent) {
-    e.preventDefault();
+  async function submit(body: Record<string, unknown>) {
     setBusy(true);
     setErr(null);
     try {
-      await postJson(`/api/p/${code}/answer`, { questionId: q!.id, words: values }, "POST", { "x-participant-token": token });
+      await postJson(`/api/p/${code}/answer`, { questionId: q!.id, ...body }, "POST", { "x-participant-token": token });
       setEditing(false);
       await onChange();
     } catch (e) {
@@ -255,51 +279,177 @@ function PollPanel({
     }
   }
 
-  return (
-    <div>
+  const header = (
+    <>
       <div className="row">
         <span className="badge accent">
           {q.blockIndex}/{q.blockCount} · {q.blockTitle}
         </span>
-        <span className="badge">{q.phase === "pre" ? "Prima" : "Dopo"}</span>
+        {q.label && <span className="badge">{q.label}</span>}
       </div>
       <div className="p-prompt">{q.prompt}</div>
+    </>
+  );
 
-      {answered ? (
-        <div className="stack">
-          <div className="alert ok">Risposta inviata. Grazie!</div>
-          <div className="podium">
-            {q.myWords!.map((w) => (
-              <span key={w} className="pill">
-                {w}
+  // quiz con soluzione rivelata: mostra giusto/sbagliato
+  if (revealed) {
+    const mine = q.myAnswer?.choices ?? [];
+    const right = mine.length > 0 && [...mine].sort().join() === [...q.correct!].sort().join();
+    return (
+      <div>
+        {header}
+        <div className="choice-list">
+          {q.options.map((o, i) => (
+            <div key={i} className={`btn choice-btn ${q.correct!.includes(i) ? "right" : mine.includes(i) ? "wrong" : ""}`}>
+              {q.correct!.includes(i) ? "✓ " : mine.includes(i) ? "✗ " : ""}
+              {o}
+            </div>
+          ))}
+        </div>
+        <div className={`alert ${right ? "ok" : mine.length ? "error" : "warn"}`} style={{ marginTop: 14 }}>
+          {right ? "Risposta esatta!" : mine.length ? "Questa volta no." : "Non hai risposto a questa domanda."}
+        </div>
+      </div>
+    );
+  }
+
+  if (answered) {
+    const a = q.myAnswer!;
+    return (
+      <div className="stack">
+        {header}
+        <div className="alert ok">Risposta inviata. Grazie!</div>
+        <div className="podium">
+          {q.type === "words" && a.words?.map((w) => <span key={w} className="pill">{w}</span>)}
+          {(q.type === "choice" || q.type === "quiz") &&
+            a.choices?.map((c) => (
+              <span key={c} className="pill">
+                {q.options[c]}
               </span>
             ))}
-          </div>
-          <p className="muted small">Aspetta la prossima domanda: comparirà qui da sola.</p>
-          <button className="btn sm" onClick={() => setEditing(true)}>
-            Modifica la risposta
-          </button>
+          {q.type === "scale" && <span className="pill">{a.value}</span>}
+          {q.type === "open" && <span className="pill">{a.text}</span>}
         </div>
-      ) : (
-        <form className="stack p-words" onSubmit={submit}>
-          {values.map((v, i) => (
+        <p className="muted small">
+          {q.type === "quiz" ? "La soluzione comparirà qui quando i relatori la riveleranno." : "Aspetta la prossima domanda: comparirà qui da sola."}
+        </p>
+        <button className="btn sm" onClick={() => setEditing(true)}>
+          Modifica la risposta
+        </button>
+      </div>
+    );
+  }
+
+  return (
+    <div>
+      {header}
+      {q.type === "words" && (
+        <form
+          className="stack p-words"
+          onSubmit={(e) => {
+            e.preventDefault();
+            void submit({ words });
+          }}
+        >
+          {words.map((v, i) => (
             <input
               key={i}
               type="text"
               value={v}
               maxLength={40}
               autoFocus={i === 0}
-              enterKeyHint={i === values.length - 1 ? "send" : "next"}
+              enterKeyHint={i === words.length - 1 ? "send" : "next"}
               placeholder={`Parola ${i + 1}`}
               aria-label={`Parola ${i + 1}`}
-              onChange={(e) => setValues((vs) => vs.map((x, j) => (j === i ? e.target.value : x)))}
+              onChange={(e) => setWords((vs) => vs.map((x, j) => (j === i ? e.target.value : x)))}
             />
           ))}
           {err && <div className="alert error">{err}</div>}
           <button className="btn primary block" disabled={busy || filled === 0}>
-            Invia {filled > 0 && filled < values.length ? `(${filled} di ${values.length})` : ""}
+            Invia {filled > 0 && filled < words.length ? `(${filled} di ${words.length})` : ""}
           </button>
-          <p className="tiny muted">Una parola o una breve espressione per campo. Puoi inviarne anche meno di {values.length}.</p>
+          <p className="tiny muted">Una parola o una breve espressione per campo. Puoi inviarne anche meno di {words.length}.</p>
+        </form>
+      )}
+
+      {(q.type === "choice" || q.type === "quiz") && (
+        <div className="stack">
+          <div className="choice-list" role={q.multiple ? "group" : "radiogroup"}>
+            {q.options.map((o, i) => {
+              const sel = choices.includes(i);
+              return (
+                <button
+                  key={i}
+                  type="button"
+                  className={`btn choice-btn ${sel ? "selected" : ""}`}
+                  aria-pressed={sel}
+                  disabled={busy}
+                  onClick={() => {
+                    if (q.multiple) setChoices((cs) => (sel ? cs.filter((x) => x !== i) : [...cs, i]));
+                    else void submit({ choices: [i] });
+                  }}
+                >
+                  {q.multiple && (sel ? "☑ " : "☐ ")}
+                  {o}
+                </button>
+              );
+            })}
+          </div>
+          {q.multiple && (
+            <button className="btn primary block" disabled={busy || !choices.length} onClick={() => submit({ choices })}>
+              Invia
+            </button>
+          )}
+          <p className="tiny muted">{q.multiple ? "Puoi scegliere più risposte." : "Tocca una risposta per inviarla."}</p>
+          {err && <div className="alert error">{err}</div>}
+        </div>
+      )}
+
+      {q.type === "scale" && (
+        <div className="stack">
+          <div className="scale-btns">
+            {Array.from({ length: q.scaleMax - q.scaleMin + 1 }, (_, i) => q.scaleMin + i).map((v) => (
+              <button
+                key={v}
+                type="button"
+                className={`btn ${value === v ? "selected" : ""}`}
+                disabled={busy}
+                onClick={() => {
+                  setValue(v);
+                  void submit({ value: v });
+                }}
+              >
+                {v}
+              </button>
+            ))}
+          </div>
+          {(q.scaleMinLabel || q.scaleMaxLabel) && (
+            <div className="spread tiny muted">
+              <span>
+                {q.scaleMin} = {q.scaleMinLabel}
+              </span>
+              <span>
+                {q.scaleMax} = {q.scaleMaxLabel}
+              </span>
+            </div>
+          )}
+          {err && <div className="alert error">{err}</div>}
+        </div>
+      )}
+
+      {q.type === "open" && (
+        <form
+          className="stack"
+          onSubmit={(e) => {
+            e.preventDefault();
+            void submit({ text });
+          }}
+        >
+          <textarea rows={4} maxLength={300} value={text} onChange={(e) => setText(e.target.value)} placeholder="Scrivi qui" autoFocus />
+          {err && <div className="alert error">{err}</div>}
+          <button className="btn primary block" disabled={busy || text.trim().length < 2}>
+            Invia
+          </button>
         </form>
       )}
     </div>

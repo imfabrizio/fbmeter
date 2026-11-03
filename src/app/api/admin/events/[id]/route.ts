@@ -1,15 +1,8 @@
 import { and, eq, inArray, notInArray } from "drizzle-orm";
 import { NextResponse } from "next/server";
 import { getDb, schema } from "@/db";
-import {
-  blocksWithQuestions,
-  defaultPrompt,
-  eventById,
-  joinUrl,
-  participantCount,
-  qaList,
-  questionStats,
-} from "@/lib/events";
+import { blocksWithQuestions, eventById, joinUrl, participantCount, qaList, questionResults } from "@/lib/events";
+import { AnswerError, headline, sanitizeConfig } from "@/lib/questions";
 import { HttpError, api, readJson, requireOperator } from "@/lib/session";
 
 type Ctx = { params: Promise<{ id: string }> };
@@ -22,36 +15,41 @@ export const GET = api(async (req: Request, { params }: Ctx) => {
   const { id } = await params;
   const ev = await eventById(id);
   const blocks = await blocksWithQuestions(ev.id);
-  const stats = await questionStats(blocks.flatMap((b) => [b.pre.id, b.post.id]));
-  const q = (x: typeof blocks[number]["pre"]) => ({
-    id: x.id,
-    prompt: x.prompt,
-    maxWords: x.maxWords,
-    respondents: stats.get(x.id)?.respondents ?? 0,
-    top: (stats.get(x.id)?.words ?? []).slice(0, 3).map((w) => ({ label: w.label, count: w.count })),
-  });
+  const results = await questionResults(blocks.flatMap((b) => b.questions));
   return NextResponse.json(
     {
       me: { role: me.role },
       event: ev,
       joinUrl: joinUrl(req, ev.code),
       participants: await participantCount(ev.id),
-      blocks: blocks.map((b) => ({ id: b.id, title: b.title, position: b.position, pre: q(b.pre), post: q(b.post) })),
+      blocks: blocks.map((b) => ({
+        id: b.id,
+        title: b.title,
+        position: b.position,
+        questions: b.questions.map((q) => {
+          const r = results.get(q.id)!;
+          return { ...q, respondents: r.respondents, headline: headline(r) };
+        }),
+      })),
       qa: ev.qaEnabled ? await qaList(ev.id, { moderator: true }) : [],
     },
     { headers: { "cache-control": "no-store" } },
   );
 });
 
+interface QuestionInput extends Record<string, unknown> {
+  id?: string;
+}
 interface BlockInput {
   id?: string;
   title?: string;
-  prePrompt?: string;
-  postPrompt?: string;
-  maxWords?: number;
+  questions?: QuestionInput[];
 }
 
-/** Aggiorna impostazioni e/o l'elenco dei blocchi (sostituzione completa, mantenendo gli id). */
+/**
+ * Aggiorna impostazioni e/o l'elenco completo di blocchi e domande.
+ * Gli id esistenti vengono mantenuti (risposte comprese); ciò che manca viene eliminato.
+ */
 export const PATCH = api(async (req: Request, { params }: Ctx) => {
   await requireOperator();
   const { id } = await params;
@@ -74,54 +72,64 @@ export const PATCH = api(async (req: Request, { params }: Ctx) => {
     if (body.qaEnabled === false && ev.screenMode === "qa") patch.screenMode = "live";
     if (Object.keys(patch).length) await tx.update(schema.events).set(patch).where(eq(schema.events.id, ev.id));
 
-    if (Array.isArray(body.blocks)) {
-      const input = body.blocks.slice(0, 30).map((b) => ({
-        id: typeof b.id === "string" ? b.id : undefined,
-        title: (b.title ?? "").trim().slice(0, 80),
-        prePrompt: (b.prePrompt ?? "").trim().slice(0, 300),
-        postPrompt: (b.postPrompt ?? "").trim().slice(0, 300),
-        maxWords: Math.min(10, Math.max(1, Math.round(Number(b.maxWords) || 3))),
-      }));
-      if (input.some((b) => !b.title)) throw new HttpError(400, "Ogni blocco deve avere un titolo");
+    if (!Array.isArray(body.blocks)) return;
 
-      const existing = await tx.select().from(schema.blocks).where(eq(schema.blocks.eventId, ev.id));
-      const keepIds = input.map((b) => b.id).filter((x): x is string => !!x && existing.some((e) => e.id === x));
-
-      // blocchi rimossi: elimina (a cascata domande, risposte e unioni)
-      const removeWhere = keepIds.length
-        ? and(eq(schema.blocks.eventId, ev.id), notInArray(schema.blocks.id, keepIds))
-        : eq(schema.blocks.eventId, ev.id);
-      const removed = await tx.select({ id: schema.blocks.id }).from(schema.blocks).where(removeWhere);
-      if (removed.length) {
-        const removedQ = await tx
-          .select({ id: schema.questions.id })
-          .from(schema.questions)
-          .where(inArray(schema.questions.blockId, removed.map((r) => r.id)));
-        if (ev.activeQuestionId && removedQ.some((q) => q.id === ev.activeQuestionId)) {
-          await tx.update(schema.events).set({ activeQuestionId: null }).where(eq(schema.events.id, ev.id));
-        }
-        await tx.delete(schema.blocks).where(removeWhere);
+    // validazione completa prima di toccare il database
+    const input = body.blocks.slice(0, 30).map((b) => {
+      const title = (b.title ?? "").trim().slice(0, 80);
+      if (!title) throw new HttpError(400, "Ogni blocco deve avere un titolo");
+      let questions;
+      try {
+        questions = (Array.isArray(b.questions) ? b.questions : []).slice(0, 20).map((q) => ({
+          id: typeof q.id === "string" ? q.id : undefined,
+          ...sanitizeConfig(q, title),
+        }));
+      } catch (e) {
+        if (e instanceof AnswerError) throw new HttpError(400, `${title} → ${e.message}`);
+        throw e;
       }
+      return { id: typeof b.id === "string" ? b.id : undefined, title, questions };
+    });
 
-      for (const [i, b] of input.entries()) {
-        const prePrompt = b.prePrompt || defaultPrompt(b.title, "pre");
-        const postPrompt = b.postPrompt || defaultPrompt(b.title, "post");
-        if (b.id && keepIds.includes(b.id)) {
-          await tx.update(schema.blocks).set({ title: b.title, position: i }).where(eq(schema.blocks.id, b.id));
-          await tx
-            .update(schema.questions)
-            .set({ prompt: prePrompt, maxWords: b.maxWords })
-            .where(and(eq(schema.questions.blockId, b.id), eq(schema.questions.phase, "pre")));
-          await tx
-            .update(schema.questions)
-            .set({ prompt: postPrompt, maxWords: b.maxWords })
-            .where(and(eq(schema.questions.blockId, b.id), eq(schema.questions.phase, "post")));
+    const existingBlocks = await tx.select().from(schema.blocks).where(eq(schema.blocks.eventId, ev.id));
+    const existingQuestions = await tx.select().from(schema.questions).where(eq(schema.questions.eventId, ev.id));
+    const keepBlockIds = input.map((b) => b.id).filter((x): x is string => !!x && existingBlocks.some((e) => e.id === x));
+    const keepQuestionIds = input
+      .flatMap((b) => b.questions.map((q) => q.id))
+      .filter((x): x is string => !!x && existingQuestions.some((e) => e.id === x));
+
+    // domande e blocchi rimossi (a cascata risposte e unioni)
+    const removedQ = existingQuestions.filter((q) => !keepQuestionIds.includes(q.id)).map((q) => q.id);
+    if (ev.activeQuestionId && removedQ.includes(ev.activeQuestionId)) {
+      await tx.update(schema.events).set({ activeQuestionId: null }).where(eq(schema.events.id, ev.id));
+    }
+    if (removedQ.length) await tx.delete(schema.questions).where(inArray(schema.questions.id, removedQ));
+    await tx
+      .delete(schema.blocks)
+      .where(
+        keepBlockIds.length
+          ? and(eq(schema.blocks.eventId, ev.id), notInArray(schema.blocks.id, keepBlockIds))
+          : eq(schema.blocks.eventId, ev.id),
+      );
+
+    for (const [bi, b] of input.entries()) {
+      let blockId = b.id && keepBlockIds.includes(b.id) ? b.id : undefined;
+      if (blockId) {
+        await tx.update(schema.blocks).set({ title: b.title, position: bi }).where(eq(schema.blocks.id, blockId));
+      } else {
+        const [nb] = await tx.insert(schema.blocks).values({ eventId: ev.id, position: bi, title: b.title }).returning();
+        blockId = nb.id;
+      }
+      for (const [qi, q] of b.questions.entries()) {
+        const { id: qid, ...cfg } = q;
+        if (qid && keepQuestionIds.includes(qid)) {
+          // cambio di tipo: le risposte già date non sono più compatibili
+          const old = existingQuestions.find((e) => e.id === qid)!;
+          if (old.type !== cfg.type) await tx.delete(schema.answers).where(eq(schema.answers.questionId, qid));
+          // una domanda può anche spostarsi in un altro blocco
+          await tx.update(schema.questions).set({ ...cfg, blockId, position: qi }).where(eq(schema.questions.id, qid));
         } else {
-          const [nb] = await tx.insert(schema.blocks).values({ eventId: ev.id, position: i, title: b.title }).returning();
-          await tx.insert(schema.questions).values([
-            { eventId: ev.id, blockId: nb.id, phase: "pre", prompt: prePrompt, maxWords: b.maxWords },
-            { eventId: ev.id, blockId: nb.id, phase: "post", prompt: postPrompt, maxWords: b.maxWords },
-          ]);
+          await tx.insert(schema.questions).values({ ...cfg, eventId: ev.id, blockId, position: qi });
         }
       }
     }

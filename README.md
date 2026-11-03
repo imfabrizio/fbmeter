@@ -2,7 +2,11 @@
 
 Sondaggi a parole e domande dal pubblico per eventi dal vivo, sul modello di Mentimeter, pensati per una presentazione divisa in **blocchi**.
 
-Il pubblico inquadra **un solo QR code** all'inizio e sceglie un nickname. Da quel momento il telefono segue da solo la regia: per ogni blocco (es. Entra ID, SharePoint, Defender…) arriva una domanda di **inizio** e, a fine intervento, una di **fine**. Ognuno scrive fino a 3 parole. Alla fine c'è una pagina con le **3 parole dominanti del "dopo"** per ogni blocco, confrontate con quelle del "prima".
+Il pubblico inquadra **un solo QR code** all'inizio e sceglie un nickname. Da quel momento il telefono segue da solo la regia: ogni blocco della presentazione (es. Entra ID, SharePoint, Defender…) ha le domande che decidi tu, aperte una alla volta dai relatori.
+
+**Tipi di domanda:** parole (nuvola), scelta multipla (singola o multipla), scala (es. 1–5 con etichette), risposta aperta, quiz con soluzione da rivelare.
+
+Il caso tipico, già pronto come modello alla creazione dell'evento, è la domanda a parole di **inizio** e quella di **fine** blocco: alla fine c'è una pagina con le **3 parole dominanti del "dopo"** per ogni blocco, confrontate con quelle del "prima". Ma ogni domanda può essere inclusa o esclusa dal **riepilogo finale** con una spunta.
 
 ## Funzioni
 
@@ -117,11 +121,12 @@ Un provider compare nella pagina di login solo se le sue variabili sono impostat
 
 1. In regia crea l'evento: titolo e un blocco per riga. Scarica il QR in SVG per la slide iniziale.
 2. Apri **Schermo proiettore** in una finestra a parte, a tutto schermo. Senza domande aperte mostra il QR grande.
-3. Per ogni blocco: **Inizio**, poi l'intervento, poi **Fine**. Il pulsante blu "Apri: …" propone sempre il passo successivo.
-4. Dopo la fine di un blocco puoi usare **Confronta** per mostrare il prima/dopo sul proiettore.
-5. In **Parole e unioni** rivedi le voci, unisci i sinonimi a mano o con l'AI.
-6. **Riepilogo finale** sul proiettore, poi **Pubblica i risultati**: sul telefono del pubblico compare il pulsante Risultati.
-7. Esporta i CSV per le analisi commerciali.
+3. In **Impostazioni e domande** prepara le domande di ogni blocco (tipo, testo, opzioni, spunta *Nel riepilogo*). Per domande singole a inizio o fine evento crea un blocco apposito, es. "Apertura" o "Gradimento".
+4. Durante l'evento apri le domande una alla volta: il pulsante blu "Apri: …" propone sempre la successiva. Per i quiz, **Mostra soluzione** rivela la risposta su telefoni e proiettore.
+5. **Confronta** mostra sul proiettore la prima e l'ultima domanda a parole del blocco (prima/dopo).
+6. In **Parole e unioni** rivedi le voci, unisci i sinonimi a mano o con l'AI.
+7. **Riepilogo finale** sul proiettore, poi **Pubblica i risultati**: sul telefono del pubblico compare il pulsante Risultati.
+8. Esporta i CSV per le analisi commerciali.
 
 Prima dell'evento vero usa *Impostazioni → Azzera le prove* per eliminare i dati dei test.
 
@@ -137,6 +142,7 @@ src/
     api/p/[code]/      API pubbliche (join, stato, risposte, Q&A, QR)
     api/admin/         API della regia (protette)
   db/schema.ts         modello dati
+  lib/questions.ts     tipi di domanda: validazione risposte e risultati
   lib/words.ts         normalizzazione e aggregazione delle parole
   lib/ai.ts            suggerimenti di unione con l'AI
   lib/events.ts        query e statistiche

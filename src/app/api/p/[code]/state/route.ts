@@ -1,7 +1,8 @@
 import { and, eq } from "drizzle-orm";
 import { NextResponse } from "next/server";
 import { getDb, schema } from "@/db";
-import { blocksWithQuestions, eventByCode, participantFromRequest, qaList } from "@/lib/events";
+import { blocksWithQuestions, eventByCode, locateQuestion, participantFromRequest, qaList } from "@/lib/events";
+import { myAnswerView, type QuestionConfig } from "@/lib/questions";
 import { api } from "@/lib/session";
 
 type Ctx = { params: Promise<{ code: string }> };
@@ -17,28 +18,36 @@ export const GET = api(async (req: Request, { params }: Ctx) => {
   let active = null;
   if (ev.activeQuestionId) {
     const blocks = await blocksWithQuestions(ev.id);
-    const idx = blocks.findIndex((b) => b.pre.id === ev.activeQuestionId || b.post.id === ev.activeQuestionId);
-    if (idx >= 0) {
-      const b = blocks[idx];
-      const q = b.pre.id === ev.activeQuestionId ? b.pre : b.post;
-      let myWords: string[] | null = null;
+    const loc = locateQuestion(blocks, ev.activeQuestionId);
+    if (loc) {
+      const { block: b, blockIndex, question: q } = loc;
+      let myAnswer = null;
       if (me) {
         const [a] = await getDb()
-          .select({ words: schema.answers.words })
+          .select()
           .from(schema.answers)
           .where(and(eq(schema.answers.questionId, q.id), eq(schema.answers.participantId, me.id)))
           .limit(1);
-        myWords = a?.words ?? null;
+        myAnswer = myAnswerView(q as QuestionConfig, a);
       }
       active = {
         id: q.id,
-        phase: q.phase,
+        type: q.type,
+        label: q.label,
         prompt: q.prompt,
         maxWords: q.maxWords,
+        options: q.options,
+        multiple: q.multiple,
+        scaleMin: q.scaleMin,
+        scaleMax: q.scaleMax,
+        scaleMinLabel: q.scaleMinLabel,
+        scaleMaxLabel: q.scaleMaxLabel,
+        // la soluzione del quiz arriva al telefono solo dopo che la regia l'ha rivelata
+        correct: q.type === "quiz" && q.revealed ? q.correct : null,
         blockTitle: b.title,
-        blockIndex: idx + 1,
+        blockIndex: blockIndex + 1,
         blockCount: blocks.length,
-        myWords,
+        myAnswer,
       };
     }
   }

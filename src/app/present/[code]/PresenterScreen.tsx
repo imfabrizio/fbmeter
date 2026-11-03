@@ -1,7 +1,7 @@
 "use client";
 
+import { ResultHeadline, ResultView, type ResultData } from "@/components/ResultView";
 import { usePolling } from "@/components/usePolling";
-import { WordCloud, type CloudWord } from "@/components/WordCloud";
 
 interface Live {
   title: string;
@@ -13,17 +13,14 @@ interface Live {
     blockTitle: string;
     blockIndex: number;
     blockCount: number;
-    phase: "pre" | "post";
+    label: string;
+    type: string;
     prompt: string;
-    respondents: number;
-    words: CloudWord[];
+    revealed: boolean;
+    result: ResultData;
   } | null;
-  compare?: {
-    title: string;
-    pre: { respondents: number; words: CloudWord[] };
-    post: { respondents: number; words: CloudWord[] };
-  };
-  final?: { title: string; respondents: number; top: CloudWord[]; preTop: CloudWord[] }[];
+  compare?: { title: string; sides: { label: string; result: ResultData }[] };
+  final?: { title: string; items: { label: string; result: ResultData }[] }[];
   qa?: { id: string; text: string; votes: number }[];
 }
 
@@ -57,6 +54,7 @@ export function PresenterScreen({ code }: { code: string }) {
 
   let top: React.ReactNode = <div className="s-kicker">{data.title}</div>;
   let body: React.ReactNode;
+  let foot: React.ReactNode = null;
   let showJoinCorner = true;
 
   if (data.mode === "final" && data.final) {
@@ -71,39 +69,49 @@ export function PresenterScreen({ code }: { code: string }) {
         {data.final.map((b) => (
           <div key={b.title} className="fcard">
             <h3>{b.title}</h3>
-            {b.top.length ? (
-              <ol>
-                {b.top.map((w) => (
-                  <li key={w.label}>
-                    {w.label}
-                    <span>{w.count}</span>
-                  </li>
-                ))}
-              </ol>
-            ) : (
-              <p style={{ color: "var(--muted)" }}>nessuna risposta</p>
+            {b.items.map((it, i) =>
+              it.result.type === "words" && it.result.words.length ? (
+                <ol key={i}>
+                  {it.result.words.slice(0, 3).map((w) => (
+                    <li key={w.label}>
+                      {w.label}
+                      <span>{w.count}</span>
+                    </li>
+                  ))}
+                </ol>
+              ) : (
+                <p key={i} style={{ fontSize: "clamp(16px, 1.5vw, 28px)", fontWeight: 700 }}>
+                  {b.items.length > 1 && <span style={{ color: "var(--muted)", fontWeight: 500 }}>{it.label}: </span>}
+                  <ResultHeadline result={it.result} />
+                </p>
+              ),
             )}
           </div>
         ))}
+        {data.final.length === 0 && <p style={{ color: "var(--muted)" }}>Nessuna domanda è segnata per il riepilogo.</p>}
       </div>
     );
   } else if (data.mode === "compare" && data.compare) {
     top = (
       <div>
         <div className="s-kicker">{data.title}</div>
-        <h1 className="s-prompt">{data.compare.title}: prima e dopo</h1>
+        <h1 className="s-prompt">
+          {data.compare.title}
+          {data.compare.sides.length === 2 && `: ${data.compare.sides[0].label.toLowerCase()} e ${data.compare.sides[1].label.toLowerCase()}`}
+        </h1>
       </div>
     );
     body = (
-      <div className="compare">
-        <div>
-          <h3>Prima · {data.compare.pre.respondents} risposte</h3>
-          <WordCloud words={data.compare.pre.words} max={25} />
-        </div>
-        <div>
-          <h3>Dopo · {data.compare.post.respondents} risposte</h3>
-          <WordCloud words={data.compare.post.words} max={25} />
-        </div>
+      <div className="compare" style={{ gridTemplateColumns: `repeat(${Math.max(1, data.compare.sides.length)}, 1fr)` }}>
+        {data.compare.sides.map((s, i) => (
+          <div key={i}>
+            <h3>
+              {s.label} · {s.result.respondents} risposte
+            </h3>
+            <ResultView result={s.result} cloudMax={25} />
+          </div>
+        ))}
+        {data.compare.sides.length === 0 && <p>Questo blocco non ha domande a parole.</p>}
       </div>
     );
   } else if (data.mode === "qa" && data.qa) {
@@ -129,12 +137,18 @@ export function PresenterScreen({ code }: { code: string }) {
     top = (
       <div>
         <div className="s-kicker">
-          {a.blockIndex}/{a.blockCount} · {a.blockTitle} · {a.phase === "pre" ? "prima" : "dopo"}
+          {a.blockIndex}/{a.blockCount} · {a.blockTitle}
+          {a.label && ` · ${a.label}`}
         </div>
         <h1 className="s-prompt">{a.prompt}</h1>
       </div>
     );
-    body = <WordCloud words={a.words} max={60} empty="Rispondete dal telefono: le parole compariranno qui" />;
+    body = (
+      <div className="s-result" style={a.type === "words" ? { width: "auto", fontSize: "inherit" } : undefined}>
+        <ResultView result={a.result} revealed={a.revealed} empty="Rispondete dal telefono: i risultati compariranno qui" />
+      </div>
+    );
+    foot = `${a.result.respondents} risposte`;
   } else {
     // nessuna domanda aperta o modalità "join": grande QR di benvenuto
     showJoinCorner = false;
@@ -163,7 +177,7 @@ export function PresenterScreen({ code }: { code: string }) {
       </div>
       <div className="s-body">{body}</div>
       <div className="s-foot">
-        <span>{data.mode === "live" && data.active ? `${data.active.respondents} risposte` : ""}</span>
+        <span>{foot}</span>
         {error && <span>{error}</span>}
       </div>
     </div>

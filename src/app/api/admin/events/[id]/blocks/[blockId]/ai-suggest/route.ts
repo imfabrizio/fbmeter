@@ -3,7 +3,7 @@ import { NextResponse } from "next/server";
 import { getDb, schema } from "@/db";
 import { suggestGroups, type AiProvider } from "@/lib/ai";
 import { decrypt } from "@/lib/crypto";
-import { blocksWithQuestions, eventById, questionStats } from "@/lib/events";
+import { blocksWithQuestions, eventById, questionResults } from "@/lib/events";
 import { HttpError, api, requireOperator } from "@/lib/session";
 
 type Ctx = { params: Promise<{ id: string; blockId: string }> };
@@ -24,9 +24,10 @@ export const POST = api(async (_req: Request, { params }: Ctx) => {
   const [settings] = await getDb().select().from(schema.aiSettings).where(eq(schema.aiSettings.userId, me.id)).limit(1);
   if (!settings) throw new HttpError(400, "Configura prima la tua chiave AI in Impostazioni AI");
 
-  const stats = await questionStats([block.pre.id, block.post.id]);
+  const stats = await questionResults(block.questions.filter((q) => q.type === "words"));
   const merged = new Map<string, { key: string; label: string; count: number }>();
   for (const s of stats.values()) {
+    if (s.type !== "words") continue;
     for (const w of s.words) {
       const m = merged.get(w.key) ?? { key: w.key, label: w.label, count: 0 };
       m.count += w.count;

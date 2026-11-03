@@ -1,3 +1,4 @@
+import { sql } from "drizzle-orm";
 import {
   boolean,
   index,
@@ -65,7 +66,10 @@ export const blocks = pgTable(
   (t) => [index("blocks_event_idx").on(t.eventId)],
 );
 
-/** Ogni blocco ha due domande: phase = pre (inizio) | post (fine). */
+/**
+ * Domande di un blocco, in numero e ordine liberi.
+ * type: words (nuvola) | choice (scelta) | scale (scala) | open (aperta) | quiz
+ */
 export const questions = pgTable(
   "questions",
   {
@@ -76,11 +80,29 @@ export const questions = pgTable(
     blockId: uuid("block_id")
       .notNull()
       .references(() => blocks.id, { onDelete: "cascade" }),
-    phase: text("phase").notNull(),
+    position: integer("position").notNull().default(0),
+    type: text("type").notNull().default("words"),
+    /** Etichetta breve mostrata in regia e sul telefono: "Inizio", "Fine", "Sondaggio"… */
+    label: text("label").notNull().default(""),
     prompt: text("prompt").notNull(),
+    /** words: parole per persona */
     maxWords: integer("max_words").notNull().default(3),
+    /** choice/quiz: opzioni di risposta */
+    options: text("options").array().notNull().default(sql`'{}'::text[]`),
+    /** choice/quiz: più risposte ammesse */
+    multiple: boolean("multiple").notNull().default(false),
+    /** quiz: indici delle opzioni corrette */
+    correct: integer("correct").array().notNull().default(sql`'{}'::integer[]`),
+    scaleMin: integer("scale_min").notNull().default(1),
+    scaleMax: integer("scale_max").notNull().default(5),
+    scaleMinLabel: text("scale_min_label").notNull().default(""),
+    scaleMaxLabel: text("scale_max_label").notNull().default(""),
+    /** Compare nella pagina e nella schermata del riepilogo finale */
+    inSummary: boolean("in_summary").notNull().default(false),
+    /** quiz: soluzione mostrata al pubblico */
+    revealed: boolean("revealed").notNull().default(false),
   },
-  (t) => [uniqueIndex("questions_block_phase_uq").on(t.blockId, t.phase)],
+  (t) => [index("questions_block_idx").on(t.blockId, t.position)],
 );
 
 /** Pubblico anonimo: nickname + token conservato sul telefono (solo l'hash qui). */
@@ -110,7 +132,13 @@ export const answers = pgTable(
     participantId: uuid("participant_id")
       .notNull()
       .references(() => participants.id, { onDelete: "cascade" }),
-    words: text("words").array().notNull(),
+    words: text("words").array().notNull().default(sql`'{}'::text[]`),
+    /** choice/quiz: indici scelti */
+    choices: integer("choices").array().notNull().default(sql`'{}'::integer[]`),
+    /** scale: valore */
+    scale: integer("scale"),
+    /** open: testo */
+    textValue: text("text_value"),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [uniqueIndex("answers_q_p_uq").on(t.questionId, t.participantId)],
