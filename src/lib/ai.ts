@@ -7,7 +7,7 @@ export type AiProvider = "anthropic" | "google" | "openai";
 
 export const AI_PROVIDERS: { id: AiProvider; label: string; defaultModel: string }[] = [
   { id: "anthropic", label: "Anthropic (Claude)", defaultModel: "claude-haiku-5-5" },
-  { id: "google", label: "Google (Gemini)", defaultModel: "gemini-2.5-flash" },
+  { id: "google", label: "Google (Gemini)", defaultModel: "gemini-3.5-flash-lite" },
   { id: "openai", label: "OpenAI", defaultModel: "gpt-4.1-mini" },
 ];
 
