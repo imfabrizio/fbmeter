@@ -32,6 +32,9 @@ export default async function Home({ searchParams }: { searchParams: Promise<{ c
       <p className="center small">
         <a href="/admin">Accesso operatori</a>
       </p>
+      <p className="center tiny muted">
+        <a href="/privacy">Privacy</a> · <a href="/termini">Termini</a>
+      </p>
     </main>
   );
 }

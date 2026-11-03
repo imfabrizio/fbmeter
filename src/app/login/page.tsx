@@ -63,6 +63,9 @@ export default async function LoginPage({ searchParams }: { searchParams: Promis
       <p className="center small muted">
         Il primo accesso crea l&apos;utenza: un amministratore deve abilitarla prima di poter usare la regia.
       </p>
+      <p className="center tiny muted">
+        <a href="/privacy">Privacy</a> · <a href="/termini">Termini</a>
+      </p>
     </main>
   );
 }

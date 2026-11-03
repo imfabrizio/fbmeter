@@ -191,6 +191,9 @@ function JoinForm({ code, title, onJoined }: { code: string; title: string; onJo
           Non serve riscansionare il QR: questa pagina si aggiorna da sola a ogni nuova domanda. Se la chiudi, riaprendola
           rientri con lo stesso nickname.
         </p>
+        <p className="tiny muted">
+          Partecipando accetti i <a href="/termini">termini</a>. <a href="/privacy">Come trattiamo i dati</a>.
+        </p>
       </form>
     </main>
   );

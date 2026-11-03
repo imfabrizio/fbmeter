@@ -22,6 +22,7 @@ Il pubblico inquadra **un solo QR code** all'inizio e sceglie un nickname. Da qu
 - **Login operatori** con Microsoft Entra ID e/o Google, in OpenID Connect standard. MFA e criteri di accesso sono quelli del vostro tenant. I nuovi utenti restano *in attesa* finché un amministratore non li abilita.
 - **Esportazione CSV**, compatibile con Excel in italiano. Due file: la classifica per blocco e tutte le risposte grezze, con forma scritta, chiave normalizzata e voce finale.
 - **Azzeramento delle prove** prima dell'evento vero.
+- **Pagine `/privacy` e `/termini`** pronte, con titolare e contatto presi da `APP_OWNER_NAME` e `APP_CONTACT_EMAIL`. Servono anche per pubblicare l'app OAuth su Google. Sono un punto di partenza: falle rivedere da chi segue la privacy nella tua organizzazione.
 
 ## Architettura
 
