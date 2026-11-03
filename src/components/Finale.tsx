@@ -138,84 +138,94 @@ export interface CrownData {
   generatedAt: string | null;
 }
 
-const W = 160;
-const H = 90;
-const CX = W / 2;
-const CY = H / 2;
-
 /**
- * Corona: le parole del pubblico su un anello largo; le linee convergono verso il centro
- * dove compaiono, uno alla volta, i macro-temi generati dall'AI.
+ * Convergenza: le parole compaiono su un anello largo, poi (un tema alla volta) volano
+ * in tre colonne e sotto ciascuna si accende il macro-tema. Stato finale: tre colonne pulite.
  */
 export function CrownView({ data, title }: { data: CrownData; title: string }) {
   const hasThemes = data.themes.length > 0;
-  const themes = hasThemes ? data.themes : [{ label: title, words: data.words.map((w) => w.label) }];
+  const known = new Set(data.words.map((w) => w.label));
+  const groups = hasThemes
+    ? data.themes.map((t) => ({ label: t.label, words: t.words.filter((w) => known.has(w)) })).filter((g) => g.words.length)
+    : [{ label: title, words: data.words.map((w) => w.label) }];
 
-  // parole ordinate per tema, così le linee di uno stesso tema non si incrociano
-  const ordered = themes.flatMap((t, ti) => t.words.map((label) => ({ label, ti }))).filter((w) => data.words.some((x) => x.label === w.label));
-  const n = Math.max(ordered.length, 1);
-  const rx = 64;
-  const ry = 36;
-  const placed = ordered.map((w, k) => {
+  // anello: ordine per gruppo, così ogni gruppo parte da uno spicchio vicino alla sua colonna
+  const ring = groups.flatMap((g, gi) => g.words.map((label) => ({ label, gi })));
+  const n = Math.max(ring.length, 1);
+  const cols = groups.length;
+  const colX = (gi: number) => (cols === 1 ? 50 : 17 + (gi * 66) / (cols - 1));
+
+  const tAppear = 0.3;
+  const stepAppear = 0.22;
+  // tutte le parole volano insieme; poi i temi si accendono uno alla volta
+  const tFly = tAppear + n * stepAppear + 1.4;
+  const tThemes = tFly + 1.6;
+  const perGroup = 1.3;
+  const tNote = tThemes + cols * perGroup + 0.5;
+
+  const items = ring.map((w, k) => {
     const a = -Math.PI / 2 + ((k + 0.5) * 2 * Math.PI) / n;
-    return { ...w, a, x: CX + rx * Math.cos(a), y: CY + ry * Math.sin(a) };
+    const g = groups[w.gi];
+    const slot = g.words.indexOf(w.label);
+    const gap = Math.min(14, 50 / g.words.length);
+    const x1 = hasThemes ? colX(w.gi) : 50 + 40 * Math.cos(a);
+    const y1 = hasThemes ? 18 + slot * gap : 47 + 36 * Math.sin(a);
+    return {
+      ...w,
+      x0: 50 + 40 * Math.cos(a),
+      y0: 47 + 36 * Math.sin(a),
+      x1,
+      y1,
+      d1: tAppear + k * stepAppear,
+      d2: tFly + k * 0.06,
+      blocks: data.words.find((x) => x.label === w.label)?.blocks ?? [],
+    };
   });
-
-  // ogni tema si posiziona verso il "suo" spicchio dell'anello
-  const nodes = themes.map((t, ti) => {
-    const mine = placed.filter((p) => p.ti === ti);
-    if (!hasThemes || !mine.length) return { ...t, x: CX, y: CY };
-    const sx = mine.reduce((s, p) => s + Math.cos(p.a), 0);
-    const sy = mine.reduce((s, p) => s + Math.sin(p.a), 0);
-    const a = Math.atan2(sy, sx);
-    return { ...t, x: CX + 27 * Math.cos(a), y: CY + 16 * Math.sin(a) };
-  });
-
-  const tWords = 0.3;
-  const tLines = tWords + n * 0.18 + 0.8;
-  const perTheme = 1.7;
-  const tNote = tLines + themes.length * perTheme + 0.3;
-  const pct = (x: number, y: number) => ({ left: `${(x / W) * 100}%`, top: `${(y / H) * 100}%` });
 
   return (
-    <div className="crown" key={data.generatedAt ?? "static"}>
-      <svg className="crown-lines" viewBox={`0 0 ${W} ${H}`} aria-hidden>
-        {placed.map((p, k) => {
-          const node = nodes[p.ti];
-          // leggera curva verso il centro
-          const mx = (p.x + node.x) / 2 + (CX - (p.x + node.x) / 2) * 0.25;
-          const my = (p.y + node.y) / 2 + (CY - (p.y + node.y) / 2) * 0.25;
-          return (
-            <path
-              key={k}
-              d={`M ${p.x} ${p.y} Q ${mx} ${my} ${node.x} ${node.y}`}
-              pathLength={1}
-              className={`t${p.ti + 1}`}
-              style={{ animationDelay: `${tLines + p.ti * perTheme + (k % 4) * 0.12}s` }}
-            />
-          );
-        })}
-      </svg>
-      {placed.map((p, k) => {
-        const w = data.words.find((x) => x.label === p.label)!;
-        return (
-          <div key={p.label} className={`crown-word t${p.ti + 1}`} style={{ ...pct(p.x, p.y), animationDelay: `${tWords + k * 0.18}s` }}>
-            {p.label}
-            <small>{w.blocks.join(" · ")}</small>
-          </div>
-        );
-      })}
-      {nodes.map((t, ti) => (
+    <div className={`crown2 ${hasThemes ? "" : "static"}`} key={data.generatedAt ?? "static"}>
+      {hasThemes &&
+        groups.map((g, gi) => (
+          <div
+            key={`col${gi}`}
+            className={`c2-col t${gi + 1}`}
+            style={{ left: `${colX(gi)}%`, animationDelay: `${tFly + 0.3 + gi * 0.15}s` }}
+            aria-hidden
+          />
+        ))}
+      {items.map((w) => (
         <div
-          key={ti}
-          className={`crown-theme t${ti + 1} ${hasThemes ? "" : "plain"}`}
-          style={{ ...pct(t.x, t.y), animationDelay: `${tLines + ti * perTheme + 0.9}s` }}
+          key={w.label}
+          className={`c2-word t${w.gi + 1}`}
+          style={
+            {
+              "--x0": `${w.x0}%`,
+              "--y0": `${w.y0}%`,
+              "--x1": `${w.x1}%`,
+              "--y1": `${w.y1}%`,
+              animationDelay: `${w.d1}s, ${w.d2}s`,
+            } as React.CSSProperties
+          }
         >
-          {t.label}
+          {w.label}
+          <small>{w.blocks.join(" · ")}</small>
+        </div>
+      ))}
+      {groups.map((g, gi) => (
+        <div
+          key={`th${gi}`}
+          className={`c2-theme t${gi + 1} ${hasThemes ? "" : "plain"}`}
+          style={{
+            left: `${hasThemes ? colX(gi) : 50}%`,
+            top: hasThemes ? "75%" : "47%",
+            animationDelay: `${hasThemes ? tThemes + gi * perGroup : tAppear + n * stepAppear + 0.4}s`,
+          }}
+        >
+          {g.label}
         </div>
       ))}
       {data.note && (
-        <p className="crown-note" style={{ animationDelay: `${tNote}s` }}>
+        <p className="c2-note" style={{ animationDelay: `${tNote}s` }}>
           {data.note}
         </p>
       )}
