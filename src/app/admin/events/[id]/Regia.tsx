@@ -63,14 +63,14 @@ interface EventState {
   qa: QaItem[];
 }
 
-type Tab = "live" | "words" | "qa" | "settings";
+type Section = "conduct" | "questions" | "words" | "qa" | "finale" | "event";
 
 /** Copia un testo negli appunti (es. il link del proiettore da aprire su un altro PC). */
-function CopyButton({ text, label }: { text: string; label: string }) {
+function CopyButton({ text, label, className = "btn" }: { text: string; label: string; className?: string }) {
   const [done, setDone] = useState(false);
   return (
     <button
-      className="btn"
+      className={className}
       title={text}
       onClick={async () => {
         try {
@@ -92,71 +92,139 @@ const qName = (q: Pick<Q, "label" | "type">, i: number) => q.label || `${SHORT[q
 
 export function Regia({ id }: { id: string }) {
   const { data, error, refresh } = usePolling<EventState>(`/api/admin/events/${id}`, 2500);
-  const [tab, setTab] = useState<Tab>("live");
+  const [section, setSection] = useState<Section>("conduct");
 
   if (!data) return <main className="container">{error ? <div className="alert error">{error}</div> : <p className="muted">Caricamento…</p>}</main>;
   const ev = data.event;
   const pendingQa = data.qa.filter((q) => q.status === "pending").length;
   const hasWords = data.blocks.some((b) => b.questions.some((q) => q.type === "words"));
+  const presentUrl = data.joinUrl.replace(/\/e\/([^/]+)$/, "/present/$1");
+
+  const nav: { id: Section; label: string; icon: string; badge?: number; hidden?: boolean }[] = [
+    { id: "conduct", label: "Conduzione", icon: "▶" },
+    { id: "questions", label: "Domande", icon: "☰" },
+    { id: "words", label: "Parole e unioni", icon: "✎", hidden: !hasWords },
+    { id: "qa", label: "Q&A", icon: "?", badge: pendingQa, hidden: !ev.qaEnabled },
+    { id: "finale", label: "Finale e risultati", icon: "★" },
+    { id: "event", label: "Impostazioni", icon: "⚙" },
+  ];
 
   return (
-    <main className="container stack">
-      <div className="spread">
-        <div>
-          <div className="row">
-            <span className="badge accent">{ev.code}</span>
-            <span className="small muted">{data.participants} partecipanti collegati</span>
-          </div>
-          <h1 style={{ marginTop: 6 }}>{ev.title}</h1>
+    <div className="regia">
+      <aside className="regia-side">
+        <div className="regia-event">
+          <span className="badge accent">{ev.code}</span>
+          <div className="regia-title">{ev.title}</div>
+          <div className="tiny muted">{data.participants} partecipanti collegati</div>
         </div>
-        <div className="row">
-          <a className="btn" href={`/present/${ev.code}`} target="_blank" rel="noreferrer">
-            Schermo proiettore ↗
+        <nav className="regia-nav">
+          {nav
+            .filter((n) => !n.hidden)
+            .map((n) => (
+              <button key={n.id} className={section === n.id ? "active" : ""} onClick={() => setSection(n.id)}>
+                <span className="ico">{n.icon}</span>
+                {n.label}
+                {!!n.badge && <span className="badge warn">{n.badge}</span>}
+              </button>
+            ))}
+        </nav>
+        <div className="regia-links">
+          <a className="btn sm block" href={presentUrl} target="_blank" rel="noreferrer">
+            Apri proiettore ↗
           </a>
-          <CopyButton text={data.joinUrl.replace(/\/e\/([^/]+)$/, "/present/$1")} label="Copia link proiettore" />
-          <a className="btn" href={`/e/${ev.code}`} target="_blank" rel="noreferrer">
+          <CopyButton text={presentUrl} label="Copia link proiettore" className="btn sm block" />
+          <a className="btn sm block ghost" href={`/e/${ev.code}`} target="_blank" rel="noreferrer">
             Vista pubblico ↗
           </a>
-          <a className="btn" href={`/r/${ev.code}`} target="_blank" rel="noreferrer">
-            Risultati ↗
-          </a>
         </div>
-      </div>
-      {error && <div className="alert warn">{error}</div>}
+      </aside>
 
-      <div className="tabs">
-        <button className={tab === "live" ? "active" : ""} onClick={() => setTab("live")}>
-          Conduzione
-        </button>
-        {hasWords && (
-          <button className={tab === "words" ? "active" : ""} onClick={() => setTab("words")}>
-            Parole e unioni
-          </button>
+      <main className="regia-main">
+        {error && <div className="alert warn">{error}</div>}
+        {section === "conduct" && <ConductTab data={data} refresh={refresh} presentUrl={presentUrl} />}
+        {section === "questions" && (
+          <div className="stack">
+            <h1 style={{ margin: 0 }}>Domande</h1>
+            <SettingsTab key="q" data={data} refresh={refresh} section="questions" />
+          </div>
         )}
-        {ev.qaEnabled && (
-          <button className={tab === "qa" ? "active" : ""} onClick={() => setTab("qa")}>
-            Domande dal pubblico {pendingQa > 0 && <span className="badge warn">{pendingQa}</span>}
-          </button>
+        {section === "words" && hasWords && (
+          <div className="stack">
+            <h1 style={{ margin: 0 }}>Parole e unioni</h1>
+            <WordsTab eventId={ev.id} blocks={data.blocks} />
+          </div>
         )}
-        <button className={tab === "settings" ? "active" : ""} onClick={() => setTab("settings")}>
-          Impostazioni e domande
-        </button>
-      </div>
-
-      {tab === "live" && <LiveTab data={data} refresh={refresh} />}
-      {tab === "words" && hasWords && <WordsTab eventId={ev.id} blocks={data.blocks} />}
-      {tab === "qa" && ev.qaEnabled && <QaTab eventId={ev.id} items={data.qa} refresh={refresh} />}
-      {tab === "settings" && <SettingsTab data={data} refresh={refresh} />}
-    </main>
+        {section === "qa" && ev.qaEnabled && (
+          <div className="stack">
+            <h1 style={{ margin: 0 }}>Domande dal pubblico</h1>
+            <QaTab eventId={ev.id} items={data.qa} refresh={refresh} />
+          </div>
+        )}
+        {section === "finale" && <FinaleTab data={data} refresh={refresh} />}
+        {section === "event" && (
+          <div className="stack">
+            <h1 style={{ margin: 0 }}>Impostazioni</h1>
+            <SettingsTab key="e" data={data} refresh={refresh} section="event" />
+          </div>
+        )}
+      </main>
+    </div>
   );
 }
 
 /* ------------------------------------------------------------------ */
 
-function LiveTab({ data, refresh }: { data: EventState; refresh: () => Promise<void> }) {
+/** Anteprima dal vivo del proiettore: la stessa pagina, rimpicciolita. */
+function PreviewFrame({ src }: { src: string }) {
+  const [scale, setScale] = useState(0.3);
+  const [el, setEl] = useState<HTMLDivElement | null>(null);
+  useEffect(() => {
+    if (!el) return;
+    const ro = new ResizeObserver(([e]) => setScale(e.contentRect.width / 1600));
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [el]);
+  return (
+    <div className="preview" ref={setEl}>
+      <iframe src={src} title="Anteprima proiettore" style={{ transform: `scale(${scale})` }} tabIndex={-1} />
+    </div>
+  );
+}
+
+type StepKind = "join" | "question" | "reveal" | "strips" | "crown" | "publish";
+interface Step {
+  key: string;
+  kind: StepKind;
+  label: string;
+  sub?: string;
+  blockId?: string;
+  q?: Q;
+}
+
+function buildSteps(blocks: Block[]): Step[] {
+  const steps: Step[] = [{ key: "join", kind: "join", label: "Accoglienza", sub: "QR grande sul proiettore" }];
+  for (const b of blocks) {
+    const words = b.questions.filter((q) => q.type === "words");
+    const lastWords = words.length >= 2 ? words[words.length - 1] : null;
+    b.questions.forEach((q, i) => {
+      steps.push({ key: q.id, kind: "question", label: `${b.title} · ${qName(q, i)}`, sub: q.prompt, blockId: b.id, q });
+      if (lastWords && q.id === lastWords.id) {
+        steps.push({ key: `rv-${b.id}`, kind: "reveal", label: `${b.title} · Rivela prima/dopo`, sub: "Cosa è cambiato", blockId: b.id });
+      }
+    });
+  }
+  steps.push({ key: "strips", kind: "strips", label: "Risultato per argomento", sub: "Tre parole per blocco" });
+  steps.push({ key: "crown", kind: "crown", label: "Convergenza", sub: "Le parole convergono nei macro-temi" });
+  steps.push({ key: "publish", kind: "publish", label: "Pubblica i risultati", sub: "I telefoni mostrano solo i risultati" });
+  return steps;
+}
+
+function ConductTab({ data, refresh, presentUrl }: { data: EventState; refresh: () => Promise<void>; presentUrl: string }) {
   const ev = data.event;
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
+  const steps = useMemo(() => buildSteps(data.blocks), [data.blocks]);
+  const conv = !!(ev.aiSummary && (ev.aiSummary as { version?: number }).version === 2);
 
   async function run(fn: () => Promise<unknown>) {
     setBusy(true);
@@ -170,186 +238,279 @@ function LiveTab({ data, refresh }: { data: EventState; refresh: () => Promise<v
       setBusy(false);
     }
   }
-  const control = (body: Record<string, unknown>) => run(() => postJson(`/api/admin/events/${ev.id}/control`, body));
-  const reveal = (blockId: string, refreshReveal = false) =>
-    run(() => postJson(`/api/admin/events/${ev.id}/blocks/${blockId}/reveal`, { show: true, refresh: refreshReveal }));
+  const control = (body: Record<string, unknown>) => postJson(`/api/admin/events/${ev.id}/control`, body);
 
-  // sequenza di conduzione: tutte le domande, blocco per blocco
-  const sequence = data.blocks.flatMap((b) => b.questions.map((q, i) => ({ q, b, label: `${b.title} · ${qName(q, i)}` })));
-  const idx = sequence.findIndex((s) => s.q.id === ev.activeQuestionId);
-  const current = idx >= 0 ? sequence[idx] : null;
-  const next = idx >= 0 ? sequence[idx + 1] : sequence.find((s) => s.q.respondents === 0);
+  async function execute(step: Step) {
+    switch (step.kind) {
+      case "join":
+        return control({ activeQuestionId: null, screenMode: "join" });
+      case "question":
+        return control({ activeQuestionId: step.q!.id });
+      case "reveal":
+        return postJson(`/api/admin/events/${ev.id}/blocks/${step.blockId}/reveal`, { show: true });
+      case "strips":
+        return control({ activeQuestionId: null, screenMode: "strips" });
+      case "crown":
+        if (!conv) {
+          try {
+            await postJson(`/api/admin/events/${ev.id}/convergence`);
+          } catch (e) {
+            setErr(`Convergenza senza temi AI: ${e instanceof Error ? e.message : "errore"}`);
+          }
+        }
+        return control({ activeQuestionId: null, screenMode: "crown" });
+      case "publish":
+        if (!confirm("Pubblicare i risultati? I telefoni mostreranno solo i risultati e non si potrà più rispondere.")) return;
+        return postJson(`/api/admin/events/${ev.id}`, { resultsPublished: true }, "PATCH");
+    }
+  }
 
-  // blocco appena chiuso con il prima/dopo da rivelare
+  // dove siamo nella scaletta
+  const idxOf = (pred: (s: Step) => boolean) => steps.findIndex(pred);
   const teaserBlock = data.blocks.find((b) => b.id === ev.teaserBlockId);
   const teaserShown = ev.screenMode === "reveal" && ev.screenBlockId === ev.teaserBlockId;
-  const pendingReveal = !current && teaserBlock && !teaserShown ? teaserBlock : null;
+  let current = 0;
+  if (ev.resultsPublished) current = idxOf((s) => s.kind === "publish");
+  else if (ev.screenMode === "crown") current = idxOf((s) => s.kind === "crown");
+  else if (ev.screenMode === "strips") current = idxOf((s) => s.kind === "strips");
+  else if (ev.activeQuestionId) current = idxOf((s) => s.q?.id === ev.activeQuestionId);
+  else if (ev.screenMode === "reveal" && ev.screenBlockId) current = idxOf((s) => s.kind === "reveal" && s.blockId === ev.screenBlockId);
+  // domanda di fine appena chiusa, prima/dopo non ancora rivelato: siamo fermi sulla domanda chiusa
+  else if (teaserBlock && !teaserShown) current = idxOf((s) => s.kind === "reveal" && s.blockId === teaserBlock.id) - 1;
+  else {
+    const answered = steps.map((s, i) => (s.kind === "question" && s.q!.respondents > 0 ? i : -1)).filter((i) => i >= 0);
+    current = answered.length ? Math.max(...answered) : 0;
+  }
+  if (current < 0) current = 0;
 
-  const modes: { id: string; label: string }[] = [
-    { id: "live", label: "Domanda aperta" },
+  // il prossimo passo (con il momento di suspense tra la chiusura della "Fine" e la rivelazione)
+  const cur = steps[current];
+  const pendingReveal = !ev.activeQuestionId && teaserBlock && !teaserShown && !ev.resultsPublished ? teaserBlock : null;
+  let next: { label: string; hint: string; action: () => Promise<unknown> } | null = null;
+  if (cur.kind === "question" && ev.activeQuestionId && steps[current + 1]?.kind === "reveal") {
+    next = {
+      label: "Chiudi la domanda",
+      hint: "I telefoni ricevono il messaggio di suspense e si prepara il prima/dopo.",
+      action: () => control({ activeQuestionId: null }),
+    };
+  } else if (pendingReveal) {
+    const st = steps.find((s) => s.kind === "reveal" && s.blockId === pendingReveal.id)!;
+    next = {
+      label: `Rivela: ${pendingReveal.title}`,
+      hint: pendingReveal.revealReady ? "Il prima/dopo è pronto." : "Sto preparando il prima/dopo: puoi premere comunque.",
+      action: () => execute(st),
+    };
+  } else if (steps[current + 1]) {
+    const st = steps[current + 1];
+    next = { label: st.label, hint: st.sub ?? "", action: () => execute(st) };
+  }
+
+  const activeStep = steps.find((s) => s.q?.id === ev.activeQuestionId);
+  const onAir: Record<string, string> = {
+    join: "QR grande di benvenuto",
+    reveal: `Prima/dopo: ${data.blocks.find((b) => b.id === ev.screenBlockId)?.title ?? ""}`,
+    strips: "Risultato per argomento",
+    crown: "Convergenza",
+    qa: "Domande dal pubblico",
+    live: activeStep ? `Domanda: ${activeStep.label}` : "In attesa (QR grande)",
+  };
+  const screens = [
     { id: "join", label: "QR grande" },
-    { id: "strips", label: "Risultato per argomento" },
+    { id: "live", label: "Domanda aperta" },
+    { id: "strips", label: "Per argomento" },
     { id: "crown", label: "Convergenza" },
-    ...(ev.qaEnabled ? [{ id: "qa", label: "Domande dal pubblico" }] : []),
+    ...(ev.qaEnabled ? [{ id: "qa", label: "Q&A" }] : []),
   ];
 
   return (
-    <div className="stack">
-      <div className="card spread">
-        <div className="row" style={{ gap: 16 }}>
-          <div className="qr-box">
-            {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img src={`/api/p/${ev.code}/qr`} alt="QR code evento" width={96} height={96} />
-          </div>
-          <div>
-            <div className="small muted">Link unico per il pubblico (sempre lo stesso)</div>
+    <div className="conduct">
+      <section className="stack" style={{ gap: 12 }}>
+        <div className="card stack" style={{ gap: 10 }}>
+          <div className="spread">
             <div>
-              <code>{data.joinUrl}</code>
+              <div className="onair">● In onda</div>
+              <b>{onAir[ev.screenMode] ?? ev.screenMode}</b>
             </div>
-            <a className="small" href={`/api/p/${ev.code}/qr?download=1`}>
-              Scarica QR (SVG) per le slide
+            <a className="btn sm" href={presentUrl} target="_blank" rel="noreferrer">
+              Apri ↗
             </a>
           </div>
-        </div>
-        <div className="stack" style={{ minWidth: 280 }}>
-          {current ? (
-            <div className="alert ok">
-              Aperta: <b>{current.label}</b>
-            </div>
-          ) : pendingReveal ? (
-            <div className="alert ok">
-              Chiuso <b>{pendingReveal.title}</b>: i telefoni mostrano il messaggio di suspense.{" "}
-              {pendingReveal.revealReady ? "Il prima/dopo è pronto." : "Sto preparando il prima/dopo…"}
-            </div>
-          ) : (
-            <div className="alert warn">Nessuna domanda aperta: il pubblico è in attesa.</div>
-          )}
-          <div className="row">
-            {pendingReveal && (
-              <button className="btn primary" disabled={busy} onClick={() => reveal(pendingReveal.id)}>
-                ✨ Rivela: {pendingReveal.title}
-              </button>
-            )}
-            {current?.q.type === "quiz" && (
+          <PreviewFrame src={`${presentUrl}?preview=1`} />
+          <div className="row" style={{ gap: 6 }}>
+            {screens.map((m) => (
               <button
-                className={`btn ${current.q.revealed ? "" : "primary"}`}
+                key={m.id}
+                className={`btn sm ${(ev.screenMode === m.id && !(m.id === "live" && !ev.activeQuestionId)) || (m.id === "join" && ev.screenMode === "live" && !ev.activeQuestionId) ? "on" : ""}`}
                 disabled={busy}
-                onClick={() => control({ reveal: { questionId: current.q.id, revealed: !current.q.revealed } })}
+                onClick={() => run(() => control({ screenMode: m.id }))}
               >
-                {current.q.revealed ? "Nascondi soluzione" : "Mostra soluzione"}
+                {m.label}
+              </button>
+            ))}
+          </div>
+        </div>
+        <div className="card row" style={{ gap: 16 }}>
+          <div className="qr-box">
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img src={`/api/p/${ev.code}/qr`} alt="QR code evento" width={84} height={84} />
+          </div>
+          <div className="small">
+            <div className="muted">Link del pubblico</div>
+            <code>{data.joinUrl}</code>
+            <div>
+              <a href={`/api/p/${ev.code}/qr?download=1`}>Scarica QR per le slide</a>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section className="stack" style={{ gap: 12 }}>
+        <div className="card next-card">
+          {ev.resultsPublished ? (
+            <>
+              <div className="next-kicker">Evento concluso</div>
+              <div className="next-title">Risultati pubblicati</div>
+              <p className="small muted">I telefoni mostrano solo i risultati. Puoi ritirarli da “Finale e risultati”.</p>
+            </>
+          ) : next ? (
+            <>
+              <div className="next-kicker">Prossimo passo</div>
+              <button className="btn primary next-btn" disabled={busy} onClick={() => run(next!.action)}>
+                <span>{next.label}</span>
+                <span className="arrow">→</span>
+              </button>
+              {next.hint && <p className="small muted" style={{ margin: "8px 0 0" }}>{next.hint}</p>}
+            </>
+          ) : (
+            <div className="next-title">Scaletta completata</div>
+          )}
+          <div className="row" style={{ marginTop: 10 }}>
+            {ev.activeQuestionId && (
+              <button className="btn sm" disabled={busy} onClick={() => run(() => control({ activeQuestionId: null }))}>
+                Chiudi domanda
               </button>
             )}
-            {next && (
-              <button className={`btn ${pendingReveal ? "" : "primary"}`} disabled={busy} onClick={() => control({ activeQuestionId: next.q.id })}>
-                Apri: {next.label} →
-              </button>
-            )}
-            {current && (
-              <button className="btn" disabled={busy} onClick={() => control({ activeQuestionId: null })}>
-                Chiudi
+            {activeStep?.q?.type === "quiz" && (
+              <button
+                className="btn sm"
+                disabled={busy}
+                onClick={() => run(() => control({ reveal: { questionId: activeStep.q!.id, revealed: !activeStep.q!.revealed } }))}
+              >
+                {activeStep.q.revealed ? "Nascondi soluzione" : "Mostra soluzione quiz"}
               </button>
             )}
           </div>
+          {err && <div className="alert error" style={{ marginTop: 10 }}>{err}</div>}
         </div>
-      </div>
-      {err && <div className="alert error">{err}</div>}
 
-      <div className="stack" style={{ gap: 8 }}>
-        {data.blocks.map((b, bi) => {
-          const isCurrent = b.questions.some((q) => q.id === ev.activeQuestionId);
-          const onScreen = ev.screenMode === "reveal" && ev.screenBlockId === b.id;
-          return (
-            <div key={b.id} className={`block-row ${isCurrent ? "current" : ""}`}>
-              <div className="block-num">{bi + 1}</div>
-              <div>
-                <b>{b.title}</b>
-                <div className="tiny muted">
-                  {b.questions
-                    .filter((q) => q.headline)
-                    .map((q) => `${qName(q, b.questions.indexOf(q))}: ${q.headline}`)
-                    .join(" · ")}
-                  {b.questions.length === 0 && "Nessuna domanda: aggiungile in Impostazioni e domande"}
-                </div>
-              </div>
-              <div className="phase-btns">
-                {b.questions.map((q, i) => {
-                  const on = q.id === ev.activeQuestionId;
-                  return (
-                    <button
-                      key={q.id}
-                      className={`btn phase-btn ${on ? "on" : ""}`}
-                      disabled={busy || on}
-                      onClick={() => control({ activeQuestionId: q.id })}
-                      title={q.prompt}
-                    >
-                      {qName(q, i)}
-                      <small>
-                        {on ? "aperta · " : ""}
-                        {q.respondents} risp.
-                        {q.inSummary ? " · ★" : ""}
-                      </small>
-                    </button>
-                  );
-                })}
-                {b.hasPair && (
-                  <button
-                    className={`btn phase-btn ${onScreen ? "on" : ""}`}
-                    disabled={busy}
-                    onClick={() => reveal(b.id, !b.revealReady || onScreen)}
-                    title={onScreen ? "Ricalcola con le ultime risposte" : "Mostra sul proiettore il prima/dopo di questo blocco"}
-                  >
-                    ✨ Rivela
-                    <small>{onScreen ? "sullo schermo · ricalcola" : b.revealReady ? `pronto${b.revealAi ? " · AI" : ""}` : "da preparare"}</small>
+        <div className="card">
+          <div className="spread" style={{ marginBottom: 8 }}>
+            <b>Scaletta</b>
+            <span className="tiny muted">clicca un passo per andarci</span>
+          </div>
+          <ol className="steps">
+            {steps.map((s, i) => {
+              const state = i < current ? "done" : i === current ? "current" : "todo";
+              const block = s.blockId ? data.blocks.find((b) => b.id === s.blockId) : null;
+              const extra =
+                s.kind === "question"
+                  ? `${s.q!.respondents} risp.`
+                  : s.kind === "reveal"
+                    ? block?.revealReady
+                      ? "pronto"
+                      : ""
+                    : s.kind === "crown" && conv
+                      ? "temi pronti"
+                      : "";
+              return (
+                <li key={s.key} className={`step ${state} k-${s.kind}`}>
+                  <button disabled={busy} onClick={() => run(() => execute(s))} title={s.sub}>
+                    <span className="dot">{state === "done" ? "✓" : i}</span>
+                    <span className="step-text">
+                      <span className="step-label">{s.label}</span>
+                      {extra && <span className="step-extra">{extra}</span>}
+                    </span>
                   </button>
-                )}
-              </div>
-            </div>
-          );
-        })}
-        {data.blocks.length === 0 && <p className="muted">Nessun blocco: aggiungili in Impostazioni e domande.</p>}
-        <p className="tiny muted">
-          ★ = domanda nel riepilogo finale. Chiudendo l&apos;ultima domanda a parole di un blocco (aprendo la successiva o con
-          Chiudi), l&apos;app prepara il prima/dopo e manda ai telefoni il messaggio di suspense; tu scegli quando premere{" "}
-          <b>Rivela</b>.
-        </p>
-      </div>
-
-      <div className="card stack">
-        <h2>Schermo del proiettore</h2>
-        <div className="row">
-          {modes.map((m) => (
-            <button key={m.id} className={`btn sm ${ev.screenMode === m.id ? "on" : ""}`} disabled={busy} onClick={() => control({ screenMode: m.id })}>
-              {m.label}
-            </button>
-          ))}
+                </li>
+              );
+            })}
+          </ol>
         </div>
-        <p className="tiny muted">
-          Aprendo una domanda lo schermo torna da solo sulla domanda aperta. Apri lo schermo proiettore in una finestra a parte, a
-          tutto schermo (F11).
-        </p>
+      </section>
+    </div>
+  );
+}
+
+/* ------------------------------------------------------------------ */
+
+function FinaleTab({ data, refresh }: { data: EventState; refresh: () => Promise<void> }) {
+  const ev = data.event;
+  const [busy, setBusy] = useState(false);
+  const run = async (fn: () => Promise<unknown>) => {
+    setBusy(true);
+    try {
+      await fn();
+      await refresh();
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <div className="stack">
+      <h1 style={{ margin: 0 }}>Finale e risultati</h1>
+      <div className="card spread">
+        <div>
+          <b>Risultato per argomento</b>
+          <div className="small muted">Una striscia per blocco con le tre parole del “dopo”.</div>
+        </div>
+        <button className="btn" disabled={busy} onClick={() => run(() => postJson(`/api/admin/events/${ev.id}/control`, { activeQuestionId: null, screenMode: "strips" }))}>
+          Mostra sul proiettore
+        </button>
       </div>
-
-      <ConvergenceCard eventId={ev.id} summary={ev.aiSummary} refresh={refresh} onShow={() => control({ screenMode: "crown" })} />
-
+      <ConvergenceCard
+        eventId={ev.id}
+        summary={ev.aiSummary}
+        refresh={refresh}
+        onShow={() => run(() => postJson(`/api/admin/events/${ev.id}/control`, { activeQuestionId: null, screenMode: "crown" }))}
+      />
       <div className="card spread">
         <div>
           <b>Risultati pubblici</b>
           <div className="small muted">
             {ev.resultsPublished
-              ? "Pubblicati: tutti i telefoni mostrano solo i risultati. Domande e Q&A sono chiusi."
-              : "Pubblicando, chiunque apra il QR vede solo i risultati finali: le domande si chiudono."}
+              ? "Pubblicati: i telefoni mostrano solo i risultati, con il report PDF da scaricare."
+              : "Pubblicando, chiunque apra il QR vede solo i risultati finali; risposte e Q&A si chiudono."}
           </div>
         </div>
-        <button
-          className={`btn ${ev.resultsPublished ? "" : "primary"}`}
-          disabled={busy}
-          onClick={() =>
-            (ev.resultsPublished || confirm("Pubblicare i risultati? I telefoni mostreranno solo i risultati e non si potrà più rispondere.")) &&
-            run(() => postJson(`/api/admin/events/${ev.id}`, { resultsPublished: !ev.resultsPublished }, "PATCH"))
-          }
-        >
-          {ev.resultsPublished ? "Ritira i risultati" : "Pubblica i risultati"}
-        </button>
+        <div className="row">
+          <a className="btn" href={`/r/${ev.code}`} target="_blank" rel="noreferrer">
+            Anteprima ↗
+          </a>
+          <button
+            className={`btn ${ev.resultsPublished ? "" : "primary"}`}
+            disabled={busy}
+            onClick={() =>
+              (ev.resultsPublished || confirm("Pubblicare i risultati? I telefoni mostreranno solo i risultati.")) &&
+              run(() => postJson(`/api/admin/events/${ev.id}`, { resultsPublished: !ev.resultsPublished }, "PATCH"))
+            }
+          >
+            {ev.resultsPublished ? "Ritira" : "Pubblica i risultati"}
+          </button>
+        </div>
+      </div>
+      <div className="card stack">
+        <b>Esporta</b>
+        <p className="small muted" style={{ margin: 0 }}>
+          CSV con separatore “;”, si apre direttamente in Excel.
+        </p>
+        <div className="row">
+          <a className="btn" href={`/api/admin/events/${ev.id}/export?type=summary`}>
+            Risultati di tutte le domande
+          </a>
+          <a className="btn" href={`/api/admin/events/${ev.id}/export?type=raw`}>
+            Tutte le risposte
+          </a>
+        </div>
       </div>
     </div>
   );
@@ -939,7 +1100,7 @@ function QuestionEditor({
   );
 }
 
-function SettingsTab({ data, refresh }: { data: EventState; refresh: () => Promise<void> }) {
+function SettingsTab({ data, refresh, section }: { data: EventState; refresh: () => Promise<void>; section: "questions" | "event" }) {
   const router = useRouter();
   const ev = data.event;
   const [title, setTitle] = useState(ev.title);
@@ -1011,6 +1172,7 @@ function SettingsTab({ data, refresh }: { data: EventState; refresh: () => Promi
 
   return (
     <div className="stack">
+      {section === "event" && (
       <div className="card stack">
         <h2>Evento</h2>
         <label className="field">
@@ -1056,8 +1218,10 @@ function SettingsTab({ data, refresh }: { data: EventState; refresh: () => Promi
             </span>
           </label>
         )}
+        {saveBar}
       </div>
-
+      )}
+      {section === "questions" && (
       <div className="card stack">
         <div className="spread">
           <h2 style={{ margin: 0 }}>Blocchi e domande</h2>
@@ -1142,20 +1306,8 @@ function SettingsTab({ data, refresh }: { data: EventState; refresh: () => Promi
         {msg && <div className={`alert ${msg.kind}`}>{msg.text}</div>}
         {saveBar}
       </div>
-
-      <div className="card stack">
-        <h2>Esporta</h2>
-        <p className="small muted">CSV con separatore “;”, si apre direttamente in Excel.</p>
-        <div className="row">
-          <a className="btn" href={`/api/admin/events/${ev.id}/export?type=summary`}>
-            Risultati di tutte le domande
-          </a>
-          <a className="btn" href={`/api/admin/events/${ev.id}/export?type=raw`}>
-            Tutte le risposte
-          </a>
-        </div>
-      </div>
-
+      )}
+      {section === "event" && (
       <div className="card stack">
         <h2>Dati di prova</h2>
         <p className="small muted">
@@ -1198,7 +1350,8 @@ function SettingsTab({ data, refresh }: { data: EventState; refresh: () => Promi
         </div>
         {demoMsg && <div className={`alert ${demoMsg.kind}`}>{demoMsg.text}</div>}
       </div>
-
+      )}
+      {section === "event" && (
       <div className="card stack" style={{ borderColor: "var(--danger)" }}>
         <h2>Zona pericolosa</h2>
         <p className="small">
@@ -1245,6 +1398,8 @@ function SettingsTab({ data, refresh }: { data: EventState; refresh: () => Promi
           </button>
         </div>
       </div>
+      )}
+
     </div>
   );
 }

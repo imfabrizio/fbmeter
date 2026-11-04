@@ -61,7 +61,7 @@ interface Live {
 }
 
 /** Schermo per il proiettore: lo pilota la regia, qui non si clicca nulla. */
-export function PresenterScreen({ code }: { code: string }) {
+export function PresenterScreen({ code, preview = false }: { code: string; preview?: boolean }) {
   const { data, error } = usePolling<Live>(`/api/p/${code}/live`, 2000);
   const qr = `/api/p/${code}/qr`;
 
@@ -159,7 +159,7 @@ export function PresenterScreen({ code }: { code: string }) {
 
   return (
     <div className="screen">
-      <FullscreenButton />
+      {!preview && <FullscreenButton />}
       <div className="s-top">
         {top}
         {showJoinCorner && smallJoin}

@@ -124,15 +124,15 @@ Un provider compare nella pagina di login solo se le sue variabili sono impostat
 ## Uso durante l'evento
 
 1. In regia crea l'evento: titolo e un blocco per riga. Scarica il QR in SVG per la slide iniziale.
-2. Apri **Schermo proiettore** in una finestra a parte, a tutto schermo. Senza domande aperte mostra il QR grande.
-3. In **Impostazioni e domande** prepara le domande di ogni blocco (tipo, testo, opzioni, spunta *Nel riepilogo*). Per domande singole a inizio o fine evento crea un blocco apposito, es. "Apertura" o "Gradimento".
-4. Durante l'evento apri le domande una alla volta: il pulsante blu "Apri: …" propone sempre la successiva. Per i quiz, **Mostra soluzione** rivela la risposta su telefoni e proiettore.
-5. Chiudendo la domanda di fine di un blocco (con "Apri: …" o "Chiudi") i telefoni ricevono il messaggio di suspense e il prima/dopo si prepara da solo: premi **✨ Rivela** quando vuoi mostrarlo.
-6. In **Parole e unioni** rivedi le voci, unisci i sinonimi a mano o con l'AI.
-7. A fine evento: **Risultato per argomento**, poi **Prepara convergenza** e **Convergenza** sul proiettore; infine **Pubblica i risultati**: tutti i telefoni passano ai soli risultati.
+2. Nel menu a sinistra, **Domande** serve a preparare le domande di ogni blocco (tipo, testo, opzioni, spunta *Nel riepilogo*). Per domande singole a inizio o fine evento crea un blocco apposito, es. "Apertura".
+3. Apri il proiettore con **Apri proiettore**. Con **Copia link proiettore** puoi aprirlo anche da un altro PC: si aggiorna da solo e mostra solo i risultati. Il pulsante *Schermo intero* compare muovendo il mouse.
+4. Per condurre usa **Conduci**. A destra c'è l'anteprima di ciò che va in onda. Il pulsante blu **Avanti** propone sempre il passo successivo: domanda, chiusura, *Rivela* prima/dopo, risultati per argomento, convergenza, pubblicazione. Nella **Scaletta** puoi saltare a qualsiasi passo.
+5. Quando chiudi la domanda di fine di un blocco, i telefoni ricevono il messaggio di suspense e il prima/dopo si prepara da solo. Lo mostri con **Rivela**.
+6. In **Parole** rivedi le voci e unisci i sinonimi, a mano o con l'AI. **Q&A** serve a moderare e proiettare le domande del pubblico.
+7. Dopo la pubblicazione i telefoni mostrano tre schede: *Per argomento*, *Convergenza* (la corona) e *Report*, con il PDF da scaricare o condividere.
 8. Esporta i CSV per le analisi commerciali.
 
-Prima dell'evento vero usa *Impostazioni → Azzera le prove* per eliminare i dati dei test.
+Prima dell'evento vero usa *Evento → Azzera le prove* per eliminare i dati dei test.
 
 ## Struttura del codice
 

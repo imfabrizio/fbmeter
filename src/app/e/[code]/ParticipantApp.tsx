@@ -1,7 +1,8 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { ThemesList, type CrownData, type StripData } from "@/components/Finale";
+import { type CrownData, type StripData } from "@/components/Finale";
+import { PublicResults } from "@/components/PublicResults";
 import { postJson, usePolling } from "@/components/usePolling";
 
 interface QaItem {
@@ -110,7 +111,7 @@ export function ParticipantApp({ code }: { code: string }) {
   }
 
   // risultati pubblicati: chiunque apra il link vede solo quelli
-  if (data.results) return <ResultsOnly title={data.event.title} results={data.results} />;
+  if (data.results) return <PublicResults title={data.event.title} results={data.results} code={code} />;
 
   if (token && !data.me && !data.tokenRejected) {
     return (
@@ -137,13 +138,25 @@ export function ParticipantApp({ code }: { code: string }) {
 
   return (
     <div className="p-shell">
-      <header className="p-head">
-        <div>
-          <div style={{ fontWeight: 800 }}>{data.event.title}</div>
-          <div className="tiny muted">
-            Sei <b>{data.me.nickname}</b> · codice {data.event.code}
+      <header className="p-head2">
+        <div className="p-head2-row">
+          <div className="p-avatar" aria-hidden>
+            {data.me.nickname.slice(0, 1).toUpperCase()}
+          </div>
+          <div style={{ minWidth: 0 }}>
+            <div className="p-event">{data.event.title}</div>
+            <div className="p-who">
+              {data.me.nickname} · {data.event.code}
+            </div>
           </div>
         </div>
+        {data.active && (
+          <div className="p-progress" aria-label={`Argomento ${data.active.blockIndex} di ${data.active.blockCount}`}>
+            {Array.from({ length: data.active.blockCount }, (_, i) => (
+              <span key={i} className={i + 1 < data.active!.blockIndex ? "done" : i + 1 === data.active!.blockIndex ? "now" : ""} />
+            ))}
+          </div>
+        )}
       </header>
       {data.event.qaEnabled && (
         <div className="tabs" style={{ padding: "0 16px", marginBottom: 0 }}>
@@ -540,47 +553,6 @@ function QaPanel({
 }
 
 /* ------------------------------------------------------------------ */
-
-function ResultsOnly({ title, results }: { title: string; results: { strips: StripData[]; crown: CrownData } }) {
-  return (
-    <div className="p-shell">
-      <header className="p-head">
-        <div>
-          <div className="tiny muted">Risultati</div>
-          <div style={{ fontWeight: 800 }}>{title}</div>
-        </div>
-      </header>
-      <main className="p-main stack">
-        <section className="stack" style={{ gap: 10 }}>
-          <h2 style={{ margin: 0 }}>Argomento per argomento</h2>
-          <div className="mstrips">
-            {results.strips.map((s) => (
-              <div key={s.blockId} className="mstrip">
-                <div className="mstrip-title">{s.title}</div>
-                <div className="mstrip-words">
-                  {s.words.length ? (
-                    s.words.map((w, i) => (
-                      <span key={w.label} className={`r${i + 1}`}>
-                        {w.label}
-                      </span>
-                    ))
-                  ) : (
-                    <span className="r2">{s.headline || "—"}</span>
-                  )}
-                </div>
-              </div>
-            ))}
-          </div>
-        </section>
-        <section className="stack" style={{ gap: 10 }}>
-          <h2 style={{ margin: 0 }}>{results.crown.themes.length ? "Dove convergono" : "Le parole più forti"}</h2>
-          <ThemesList data={results.crown} />
-        </section>
-        <p className="tiny muted center">Grazie per aver partecipato!</p>
-      </main>
-    </div>
-  );
-}
 
 function MomentView({ moment }: { moment: Moment }) {
   // vibrazione al primo arrivo del messaggio di suspense (dove il telefono lo supporta)

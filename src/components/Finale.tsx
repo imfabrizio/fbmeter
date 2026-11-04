@@ -138,20 +138,13 @@ export interface CrownData {
   generatedAt: string | null;
 }
 
-/** Posizioni "a costellazione" deterministiche per il prologo (niente casualità tra un refresh e l'altro). */
-function scatter(k: number, n: number) {
-  const golden = 2.399963;
-  const r = 0.45 + 0.55 * Math.sqrt((k + 0.5) / n);
-  const a = k * golden;
-  return { x: 50 + 40 * r * Math.cos(a), y: 50 + 36 * r * Math.sin(a) };
-}
-
 /**
- * Convergenza, come una sigla: prologo con le parole sparse; poi, un tema alla volta,
- * le sue parole compaiono al centro, si fondono e ne emerge il tema, che scivola al suo posto.
- * Finale: tre righe centrate, tema grande e parole sotto.
+ * Corona: le parole del pubblico, come etichette colorate su un anello largo;
+ * un tema alla volta, le linee delle sue parole convergono al centro e il tema si accende.
+ * I temi stanno impilati al centro: non si sovrappongono mai, né tra loro né all'anello.
+ * `portrait` = versione verticale per il telefono.
  */
-export function CrownView({ data, title }: { data: CrownData; title: string }) {
+export function CrownView({ data, title, portrait = false }: { data: CrownData; title: string; portrait?: boolean }) {
   const hasThemes = data.themes.length > 0;
   const known = new Set(data.words.map((w) => w.label));
   const groups = (
@@ -160,54 +153,151 @@ export function CrownView({ data, title }: { data: CrownData; title: string }) {
       : [{ label: title, words: data.words.map((w) => w.label) }]
   ).filter((g) => g.words.length);
 
-  // il primo tema va in alto, il secondo in basso, l'ultimo resta al centro: il palco resta sempre libero
-  const slots = groups.length === 3 ? [20, 80, 50] : groups.length === 2 ? [32, 68] : [50];
-  const all = data.words.map((w) => w.label);
+  if (portrait) return <CrownPortrait groups={groups} words={data.words} note={data.note} hasThemes={hasThemes} k={data.generatedAt ?? "static"} />;
 
-  const tPrelude = 0.2;
-  const tStage = tPrelude + 0.18 * all.length + 1.6;
-  const per = 3.2;
-  const tNote = tStage + groups.length * per + 0.2;
+  const W = portrait ? 90 : 160;
+  const H = portrait ? 130 : 90;
+  const CX = W / 2;
+  const CY = H / 2;
+  const rx = portrait ? 0.32 * W : 0.4 * W;
+  const ry = portrait ? 0.41 * H : 0.4 * H;
+  // sugli archi alto/basso serve più apertura (lì l'ellisse "schiaccia" le distanze orizzontali)
+  const stepArc = (portrait ? 34 : 40) * (Math.PI / 180);
+  const stepSide = (portrait ? 16 : 26) * (Math.PI / 180);
+
+  // spicchi: primo gruppo in alto, ultimo in basso, quello di mezzo ai lati
+  const deg = Math.PI / 180;
+  const angleOf = (gi: number, i: number, k: number): number => {
+    const G = groups.length;
+    if (G === 1) return -Math.PI / 2 + ((i + 0.5) * 2 * Math.PI) / k;
+    const isTop = gi === 0;
+    const isBottom = gi === G - 1;
+    if (isTop || isBottom) return (isTop ? -90 : 90) * deg + (i - (k - 1) / 2) * stepArc;
+    // gruppo centrale: alterna destra e sinistra
+    const side = i % 2 === 0 ? 0 : 180;
+    const onSide = Math.floor(i / 2);
+    const perSide = side === 0 ? Math.ceil(k / 2) : Math.floor(k / 2);
+    return side * deg + (onSide - (perSide - 1) / 2) * stepSide;
+  };
+
+  const rows = groups.length === 3 ? [0.31, 0.5, 0.69] : groups.length === 2 ? [0.4, 0.6] : [0.5];
+  const nodes = groups.map((g, gi) => ({ ...g, x: CX, y: rows[gi] * H }));
+  const placed = groups.flatMap((g, gi) =>
+    g.words.map((label, i) => {
+      const a = angleOf(gi, i, g.words.length);
+      return {
+        label,
+        gi,
+        x: CX + rx * Math.cos(a),
+        y: CY + ry * Math.sin(a),
+        blocks: data.words.find((w) => w.label === label)?.blocks ?? [],
+      };
+    }),
+  );
+
+  const tWords = 0.3;
+  const tFirst = tWords + placed.length * 0.16 + 1;
+  const per = 2.1;
+  const tNote = tFirst + groups.length * per + 0.4;
+  const pct = (x: number, y: number) => ({ left: `${(x / W) * 100}%`, top: `${(y / H) * 100}%` });
+  // ordine di comparsa: giro dell'anello in senso orario
+  const order = [...placed].sort((a, b) => Math.atan2(a.y - CY, a.x - CX) - Math.atan2(b.y - CY, b.x - CX));
 
   return (
-    <div className="cv" key={data.generatedAt ?? "static"}>
-      {all.map((w, k) => {
-        const p = scatter(k, all.length);
-        return (
-          <span
-            key={`p-${w}`}
-            className="cv-prelude"
-            style={{ left: `${p.x}%`, top: `${p.y}%`, animationDelay: `${tPrelude + k * 0.18}s, ${tStage - 0.9}s` }}
-          >
-            {w}
-          </span>
-        );
-      })}
+    <div className={`crown4 ${portrait ? "portrait" : ""}`} key={data.generatedAt ?? "static"}>
+      <svg className="c4-lines" viewBox={`0 0 ${W} ${H}`} aria-hidden>
+        <ellipse cx={CX} cy={CY} rx={rx} ry={ry} className="c4-orbit" />
+        {placed.map((p, k) => {
+          const n = nodes[p.gi];
+          const mx = (p.x + n.x) / 2 + (CX - p.x) * 0.12;
+          const my = (p.y + n.y) / 2;
+          return (
+            <path
+              key={k}
+              d={`M ${p.x} ${p.y} Q ${mx} ${my} ${n.x} ${n.y}`}
+              pathLength={1}
+              className={`t${p.gi + 1}`}
+              style={{ animationDelay: `${tFirst + p.gi * per + (k % 3) * 0.12}s` }}
+            />
+          );
+        })}
+      </svg>
+      {placed.map((p) => (
+        <div
+          key={p.label}
+          className={`c4-word t${p.gi + 1}`}
+          style={{ ...pct(p.x, p.y), animationDelay: `${tWords + order.indexOf(p) * 0.16}s, ${tFirst + p.gi * per}s` }}
+        >
+          <span className="q">“</span>
+          {p.label}
+          <span className="q">”</span>
+          {p.blocks.length > 0 && <small>{p.blocks.join(" · ")}</small>}
+        </div>
+      ))}
+      {nodes.map((n, gi) => (
+        <div key={gi} className={`c4-theme t${gi + 1} ${hasThemes ? "" : "plain"}`} style={{ ...pct(n.x, n.y), animationDelay: `${tFirst + gi * per + 0.9}s` }}>
+          {n.label}
+        </div>
+      ))}
+      {data.note && (
+        <p className="c4-note" style={{ animationDelay: `${tNote}s` }}>
+          {data.note}
+        </p>
+      )}
+    </div>
+  );
+}
 
+/** Corona per schermi stretti: ogni tema è una piccola convergenza (parole → linee → tema), una sotto l'altra. */
+function CrownPortrait({
+  groups,
+  words,
+  note,
+  hasThemes,
+  k,
+}: {
+  groups: { label: string; words: string[] }[];
+  words: CrownData["words"];
+  note: string;
+  hasThemes: boolean;
+  k: string;
+}) {
+  const per = 1.6;
+  return (
+    <div className="c4p" key={k}>
       {groups.map((g, gi) => {
-        const t = tStage + gi * per;
+        const t = 0.2 + gi * per;
+        const n = g.words.length;
         return (
-          <div key={`g-${gi}`}>
-            <div className="cv-intro" style={{ animationDelay: `${t}s` }} aria-hidden>
+          <section key={gi} className={`c4p-g t${gi + 1}`}>
+            <div className="c4p-words">
               {g.words.map((w, wi) => (
-                <span key={w} style={{ animationDelay: `${t + wi * 0.15}s` }}>
+                <span key={w} className={`c4-word t${gi + 1} c4p-chip`} style={{ animationDelay: `${t + wi * 0.12}s, 0s` }}>
+                  <span className="q">“</span>
                   {w}
+                  <span className="q">”</span>
+                  <small>{words.find((x) => x.label === w)?.blocks.join(" · ")}</small>
                 </span>
               ))}
             </div>
-            <div className="cv-group" style={{ "--yf": `${slots[gi] ?? 50}%`, animationDelay: `${t + 1.55}s` } as React.CSSProperties}>
-              <div className="cv-theme">{g.label}</div>
-              <div className="cv-words" style={{ animationDelay: `${t + 2.9}s` }}>
-                {g.words.join("  ·  ")}
-              </div>
+            <svg className="c4p-funnel" viewBox="0 0 100 24" preserveAspectRatio="none" aria-hidden>
+              {g.words.map((w, wi) => (
+                <path
+                  key={w}
+                  d={`M ${n === 1 ? 50 : 14 + (wi * 72) / (n - 1)} 0 L 50 24`}
+                  style={{ animationDelay: `${t + 0.5 + wi * 0.08}s` }}
+                />
+              ))}
+            </svg>
+            <div className={`c4p-theme ${hasThemes ? "" : "plain"}`} style={{ animationDelay: `${t + 0.9}s` }}>
+              {g.label}
             </div>
-          </div>
+          </section>
         );
       })}
-
-      {data.note && (
-        <p className="cv-note" style={{ animationDelay: `${tNote}s` }}>
-          {data.note}
+      {note && (
+        <p className="c4p-note" style={{ animationDelay: `${0.2 + groups.length * per + 0.2}s` }}>
+          {note}
         </p>
       )}
     </div>
