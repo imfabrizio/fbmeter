@@ -5,6 +5,7 @@ import Google from "next-auth/providers/google";
 import MicrosoftEntraID from "next-auth/providers/microsoft-entra-id";
 import { eq } from "drizzle-orm";
 import { getDb, schema } from "@/db";
+import { envAdminEmails, listEnv } from "@/lib/roles";
 
 /**
  * Login operatori via OpenID Connect standard (Entra ID e/o Google).
@@ -48,19 +49,12 @@ export const providerList = providers.map((p) => {
   return { id: cfg.id, name: cfg.name };
 });
 
-function listEnv(name: string): string[] {
-  return (process.env[name] ?? "")
-    .split(",")
-    .map((s) => s.trim().toLowerCase())
-    .filter(Boolean);
-}
-
 /** Crea o aggiorna l'operatore. ADMIN_EMAILS → admin; OPERATOR_EMAIL_DOMAINS → operator; altri → pending. */
 async function upsertUser(email: string, name: string | null | undefined, provider: string) {
   const db = getDb();
   const normalized = email.toLowerCase();
   const domain = normalized.split("@")[1] ?? "";
-  const isAdmin = listEnv("ADMIN_EMAILS").includes(normalized);
+  const isAdmin = envAdminEmails().includes(normalized);
   const autoOperator = listEnv("OPERATOR_EMAIL_DOMAINS").includes(domain);
 
   const [existing] = await db.select().from(schema.users).where(eq(schema.users.email, normalized)).limit(1);

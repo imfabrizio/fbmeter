@@ -15,7 +15,7 @@ interface U {
 
 const PROVIDERS: Record<string, string> = { "microsoft-entra-id": "Microsoft", google: "Google", dev: "Sviluppo" };
 
-export function UserRow({ user, isMe }: { user: U; isMe: boolean }) {
+export function UserRow({ user, isMe, fromEnv }: { user: U; isMe: boolean; fromEnv: boolean }) {
   const router = useRouter();
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
@@ -38,6 +38,8 @@ export function UserRow({ user, isMe }: { user: U; isMe: boolean }) {
       <td>
         <b>{user.email}</b>
         {user.name && <div className="tiny muted">{user.name}</div>}
+        {fromEnv && <div className="tiny muted">Amministratore fisso (ADMIN_EMAILS)</div>}
+        {!user.lastLoginAt && <div className="tiny muted">Invitato: non ha ancora fatto l&apos;accesso</div>}
         {err && <div className="tiny" style={{ color: "var(--danger)" }}>{err}</div>}
       </td>
       <td className="small">{PROVIDERS[user.provider ?? ""] ?? user.provider ?? "—"}</td>
@@ -45,8 +47,12 @@ export function UserRow({ user, isMe }: { user: U; isMe: boolean }) {
       <td>
         <select
           value={user.role}
-          disabled={busy || isMe}
-          onChange={(e) => run(() => postJson(`/api/admin/users/${user.id}`, { role: e.target.value }, "PATCH"))}
+          disabled={busy || isMe || fromEnv}
+          onChange={(e) => {
+            const role = e.target.value;
+            if (role === "admin" && !confirm(`Rendere ${user.email} amministratore? Potrà gestire utenti e ruoli, compreso il tuo.`)) return;
+            run(() => postJson(`/api/admin/users/${user.id}`, { role }, "PATCH"));
+          }}
           aria-label={`Ruolo di ${user.email}`}
         >
           <option value="pending">In attesa</option>

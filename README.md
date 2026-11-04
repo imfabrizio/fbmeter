@@ -117,7 +117,8 @@ Un provider compare nella pagina di login solo se le sue variabili sono impostat
 | Operatore | Crea e conduce eventi, modera il Q&A, gestisce la propria chiave AI |
 | Amministratore | Come l'operatore, più la gestione degli utenti |
 
-- Gli indirizzi in `ADMIN_EMAILS` sono sempre amministratori.
+- `ADMIN_EMAILS` serve solo per il primo amministratore: quegli indirizzi restano sempre amministratori e non si possono declassare dall'interfaccia.
+- Dalla pagina **Utenti** un amministratore cambia il ruolo di chiunque, compresa la nomina di altri amministratori. Può anche **aggiungere un utente per email** prima del suo primo accesso, che troverà il ruolo già pronto. Deve sempre restare almeno un amministratore e nessuno può declassare o eliminare se stesso.
 - Gli utenti dei domini in `OPERATOR_EMAIL_DOMAINS` vengono abilitati in automatico come operatori.
 - Tutti gli operatori vedono tutti gli eventi, così i relatori possono passarsi la regia.
 
