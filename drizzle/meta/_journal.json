@@ -57,6 +57,13 @@
       "when": 1793794458957,
       "tag": "0007_ai_endpoint",
       "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1793796374012,
+      "tag": "0008_teaser_revealed",
+      "breakpoints": true
     }
   ]
 }

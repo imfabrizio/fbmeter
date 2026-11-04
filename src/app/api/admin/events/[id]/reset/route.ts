@@ -28,7 +28,7 @@ export const POST = api(async (req: Request, { params }: Ctx) => {
     await tx.update(schema.blocks).set({ reveal: null }).where(eq(schema.blocks.eventId, ev.id));
     await tx
       .update(schema.events)
-      .set({ activeQuestionId: null, screenMode: "live", screenBlockId: null, teaserBlockId: null, resultsPublished: false, aiSummary: null })
+      .set({ activeQuestionId: null, screenMode: "live", screenBlockId: null, teaserBlockId: null, teaserRevealed: false, resultsPublished: false, aiSummary: null })
       .where(eq(schema.events.id, ev.id));
   });
   return NextResponse.json({ ok: true });

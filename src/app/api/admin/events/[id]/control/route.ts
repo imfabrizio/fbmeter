@@ -62,6 +62,7 @@ export const POST = api(async (req: Request, { params }: Ctx) => {
     if (loc && pair && pair[1].id === ev.activeQuestionId) {
       closedBlockId = loc.block.id;
       patch.teaserBlockId = loc.block.id;
+      patch.teaserRevealed = false;
       if (body.screenMode === undefined && body.activeQuestionId === null) patch.screenBlockId = loc.block.id;
     }
   }
@@ -70,6 +71,8 @@ export const POST = api(async (req: Request, { params }: Ctx) => {
     if (!SCREEN_MODES.has(body.screenMode)) throw new HttpError(400, "Modalità schermo non valida");
     if (body.screenMode === "qa" && !ev.qaEnabled) throw new HttpError(400, "Le domande non sono attive");
     patch.screenMode = body.screenMode;
+    // passando al finale, un eventuale prima/dopo non mostrato non resta più "in sospeso"
+    if ((body.screenMode === "strips" || body.screenMode === "crown") && (patch.teaserBlockId ?? ev.teaserBlockId)) patch.teaserRevealed = true;
   }
   if (body.screenBlockId !== undefined) patch.screenBlockId = body.screenBlockId;
 

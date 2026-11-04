@@ -57,6 +57,7 @@ interface EventState {
     resultsPublished: boolean;
     aiSummary: unknown;
     teaserBlockId: string | null;
+    teaserRevealed: boolean;
   };
   joinUrl: string;
   participants: number;
@@ -270,7 +271,7 @@ function ConductTab({ data, refresh, presentUrl }: { data: EventState; refresh: 
   // dove siamo nella scaletta
   const idxOf = (pred: (s: Step) => boolean) => steps.findIndex(pred);
   const teaserBlock = data.blocks.find((b) => b.id === ev.teaserBlockId);
-  const teaserShown = ev.screenMode === "reveal" && ev.screenBlockId === ev.teaserBlockId;
+  const teaserShown = ev.teaserRevealed || (ev.screenMode === "reveal" && ev.screenBlockId === ev.teaserBlockId);
   let current = 0;
   if (ev.resultsPublished) current = idxOf((s) => s.kind === "publish");
   else if (ev.screenMode === "crown") current = idxOf((s) => s.kind === "crown");
@@ -287,7 +288,10 @@ function ConductTab({ data, refresh, presentUrl }: { data: EventState; refresh: 
 
   // il prossimo passo (con il momento di suspense tra la chiusura della "Fine" e la rivelazione)
   const cur = steps[current];
-  const pendingReveal = !ev.activeQuestionId && teaserBlock && !teaserShown && !ev.resultsPublished ? teaserBlock : null;
+  // un prima/dopo in sospeso conta solo se siamo ancora prima di quel passo (mai tornare indietro)
+  const teaserIdx = teaserBlock ? idxOf((s) => s.kind === "reveal" && s.blockId === teaserBlock.id) : -1;
+  const pendingReveal =
+    !ev.activeQuestionId && teaserBlock && !teaserShown && !ev.resultsPublished && current < teaserIdx ? teaserBlock : null;
   let next: { label: string; hint: string; action: () => Promise<unknown> } | null = null;
   if (cur.kind === "question" && ev.activeQuestionId && steps[current + 1]?.kind === "reveal") {
     next = {

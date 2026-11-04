@@ -35,7 +35,7 @@ export const POST = api(async (req: Request, { params }: Ctx) => {
   if (body.show !== false) {
     await db
       .update(schema.events)
-      .set({ screenMode: "reveal", screenBlockId: block.id, teaserBlockId: block.id, activeQuestionId: null })
+      .set({ screenMode: "reveal", screenBlockId: block.id, teaserBlockId: block.id, teaserRevealed: true, activeQuestionId: null })
       .where(eq(schema.events.id, ev.id));
   }
   return NextResponse.json({ ok: true, reveal });

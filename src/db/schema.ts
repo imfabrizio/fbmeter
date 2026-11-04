@@ -65,6 +65,8 @@ export const events = pgTable("events", {
   screenBlockId: uuid("screen_block_id"),
   /** Blocco appena chiuso: i telefoni mostrano il messaggio di suspense fino alla rivelazione */
   teaserBlockId: uuid("teaser_block_id"),
+  /** Il prima/dopo del blocco in teaser è già stato rivelato (resta vero anche cambiando schermata). */
+  teaserRevealed: boolean("teaser_revealed").notNull().default(false),
   qaEnabled: boolean("qa_enabled").notNull().default(false),
   qaModerated: boolean("qa_moderated").notNull().default(false),
   resultsPublished: boolean("results_published").notNull().default(false),

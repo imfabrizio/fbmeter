@@ -67,7 +67,7 @@ export const GET = api(async (req: Request, { params }: Ctx) => {
   let moment = null;
   if (!active && me && ev.teaserBlockId) {
     const block = blocks.find((b) => b.id === ev.teaserBlockId);
-    const shown = (ev.screenMode === "reveal" || ev.screenMode === "compare") && ev.screenBlockId === ev.teaserBlockId;
+    const shown = ev.teaserRevealed || ((ev.screenMode === "reveal" || ev.screenMode === "compare") && ev.screenBlockId === ev.teaserBlockId);
     const p = block ? await personalReveal(block, me.id) : null;
     if (block && p && p.kind !== "none") {
       moment = shown
