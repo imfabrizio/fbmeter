@@ -5,10 +5,52 @@
 
 export type AiProvider = "anthropic" | "google" | "openai";
 
-export const AI_PROVIDERS: { id: AiProvider; label: string; defaultModel: string }[] = [
-  { id: "anthropic", label: "Anthropic (Claude)", defaultModel: "claude-haiku-5-5" },
-  { id: "google", label: "Google (Gemini)", defaultModel: "gemini-3.5-flash-lite" },
-  { id: "openai", label: "OpenAI", defaultModel: "gpt-4.1-mini" },
+export interface ProviderInfo {
+  id: AiProvider;
+  label: string;
+  short: string;
+  defaultModel: string;
+  /** Modelli suggeriti nel menu: si può comunque scriverne un altro. */
+  models: { id: string; note: string }[];
+  keyUrl: string;
+  keyPrefix: string;
+}
+
+export const AI_PROVIDERS: ProviderInfo[] = [
+  {
+    id: "anthropic",
+    label: "Anthropic (Claude)",
+    short: "Claude",
+    defaultModel: "claude-haiku-5-5",
+    models: [
+      { id: "claude-haiku-5-5", note: "veloce ed economico, consigliato" },
+      { id: "claude-sonnet-5-5", note: "più accurato" },
+      { id: "claude-opus-5-5", note: "il più capace, più lento e costoso" },
+    ],
+    keyUrl: "https://platform.claude.com/settings/keys",
+    keyPrefix: "sk-ant-",
+  },
+  {
+    id: "google",
+    label: "Google (Gemini)",
+    short: "Gemini",
+    defaultModel: "gemini-3.5-flash-lite",
+    models: [
+      { id: "gemini-3.5-flash-lite", note: "veloce ed economico" },
+      { id: "gemini-3.5-flash", note: "più accurato" },
+    ],
+    keyUrl: "https://aistudio.google.com/apikey",
+    keyPrefix: "AIza",
+  },
+  {
+    id: "openai",
+    label: "OpenAI",
+    short: "OpenAI",
+    defaultModel: "gpt-4.1-mini",
+    models: [{ id: "gpt-4.1-mini", note: "veloce ed economico" }],
+    keyUrl: "https://platform.openai.com/api-keys",
+    keyPrefix: "sk-",
+  },
 ];
 
 export interface AiGroup {

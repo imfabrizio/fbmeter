@@ -36,6 +36,20 @@
       "when": 1793745729201,
       "tag": "0004_reveal",
       "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1793792950959,
+      "tag": "0005_ai_profiles",
+      "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1793792959993,
+      "tag": "0006_drop_ai_settings",
+      "breakpoints": true
     }
   ]
 }

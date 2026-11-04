@@ -24,18 +24,31 @@ export const users = pgTable("users", {
   lastLoginAt: timestamp("last_login_at", { withTimezone: true }),
 });
 
-/** Chiave AI personale di ogni operatore, cifrata con APP_ENCRYPTION_KEY. */
-export const aiSettings = pgTable("ai_settings", {
-  userId: uuid("user_id")
-    .primaryKey()
-    .references(() => users.id, { onDelete: "cascade" }),
-  /** anthropic | google | openai */
-  provider: text("provider").notNull(),
-  model: text("model").notNull(),
-  keyCiphertext: text("key_ciphertext").notNull(),
-  keyHint: text("key_hint").notNull(),
-  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
-});
+/**
+ * Profili AI personali: un operatore può salvarne più di uno (fornitori o modelli diversi)
+ * e ne sceglie uno predefinito. Le chiavi sono cifrate con APP_ENCRYPTION_KEY.
+ */
+export const aiProfiles = pgTable(
+  "ai_profiles",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    label: text("label").notNull(),
+    /** anthropic | google | openai */
+    provider: text("provider").notNull(),
+    model: text("model").notNull(),
+    keyCiphertext: text("key_ciphertext").notNull(),
+    keyHint: text("key_hint").notNull(),
+    isDefault: boolean("is_default").notNull().default(false),
+    lastTestOk: boolean("last_test_ok"),
+    lastTestAt: timestamp("last_test_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index("ai_profiles_user_idx").on(t.userId)],
+);
 
 export const events = pgTable("events", {
   id: uuid("id").primaryKey().defaultRandom(),

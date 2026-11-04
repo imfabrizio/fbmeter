@@ -2,6 +2,7 @@
 
 import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
+import { AiPicker } from "@/components/AiPicker";
 import { ThemesList, type CrownData } from "@/components/Finale";
 import { postJson, usePolling } from "@/components/usePolling";
 import { QTYPES, defaultQuestion, type QType } from "@/lib/questions";
@@ -137,6 +138,7 @@ export function Regia({ id }: { id: string }) {
             Vista pubblico ↗
           </a>
         </div>
+        <AiPicker />
       </aside>
 
       <main className="regia-main">
@@ -531,7 +533,7 @@ function ConvergenceCard({
 }) {
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
-  const conv = summary && (summary as { version?: number }).version === 2 ? (summary as CrownData & { model?: string }) : null;
+  const conv = summary && (summary as { version?: number }).version === 2 ? (summary as CrownData & { aiLabel?: string }) : null;
 
   async function run(fn: () => Promise<unknown>) {
     setBusy(true);
@@ -579,7 +581,8 @@ function ConvergenceCard({
         <>
           <ThemesList data={conv} />
           <p className="tiny muted">
-            Preparata il {conv.generatedAt ? new Date(conv.generatedAt).toLocaleString("it-IT") : "—"}. Se arrivano nuove risposte,
+            Preparata il {conv.generatedAt ? new Date(conv.generatedAt).toLocaleString("it-IT") : "—"}
+            {conv.aiLabel ? ` con ${conv.aiLabel}` : ""}. Se arrivano nuove risposte,
             premi Rigenera.
           </p>
         </>
@@ -673,9 +676,11 @@ function WordsTab({ eventId, blocks }: { eventId: string; blocks: Block[] }) {
           disabled={busy || !data || data.words.length < 2}
           onClick={() =>
             run(async () => {
-              const r = await postJson<{ groups: AiGroup[] }>(`${base}/ai-suggest`);
+              const r = await postJson<{ groups: AiGroup[]; profile?: string; fallbackFrom?: string[] }>(`${base}/ai-suggest`);
               setAi(r.groups.map((g) => ({ ...g, selected: true })));
-              if (!r.groups.length) setMsg({ kind: "ok", text: "L'AI non ha trovato voci da unire." });
+              const via = r.fallbackFrom?.length ? ` (${r.fallbackFrom.join(", ")} non ha risposto: usato ${r.profile})` : "";
+              if (!r.groups.length) setMsg({ kind: "ok", text: `L'AI non ha trovato voci da unire.${via}` });
+              else if (via) setMsg({ kind: "ok", text: `Proposte pronte${via}.` });
             })
           }
         >

@@ -5,8 +5,8 @@
  */
 import { eq } from "drizzle-orm";
 import { getDb, schema } from "@/db";
-import { generateLinks, generateThemes, type AiProvider, type EvolutionLink, type Theme } from "./ai";
-import { decrypt } from "./crypto";
+import { generateLinks, generateThemes, type EvolutionLink, type Theme } from "./ai";
+import { NoAiError, withAi } from "./aiProfiles";
 import { blocksWithQuestions, eventById, questionResults, type BlockWithQuestions, type QuestionRow } from "./events";
 import { headline, type QuestionResult } from "./questions";
 import { wordKey, type WordStat } from "./words";
@@ -32,6 +32,8 @@ export interface BlockReveal {
   links: EvolutionLink[];
   note: string;
   ai: boolean;
+  /** Profilo AI che ha risposto (solo per la regia). */
+  aiLabel?: string;
 }
 
 /** Le due domande a parole confrontate: la prima e l'ultima del blocco. */
@@ -48,17 +50,6 @@ export function resultQuestion(block: BlockWithQuestions): QuestionRow | null {
 
 const top = (r: QuestionResult | undefined, n = 3): WordStat[] => (r?.type === "words" ? r.words.slice(0, n) : []);
 const asReveal = (w: WordStat): RevealWord => ({ label: w.label, count: w.count, key: w.key });
-
-async function operatorAi(userId: string | null) {
-  if (!userId) return null;
-  const [s] = await getDb().select().from(schema.aiSettings).where(eq(schema.aiSettings.userId, userId)).limit(1);
-  if (!s) return null;
-  try {
-    return { provider: s.provider as AiProvider, model: s.model, key: decrypt(s.keyCiphertext) };
-  } catch {
-    return null;
-  }
-}
 
 /** Calcola (e con l'AI arricchisce) la rivelazione di un blocco, e la salva. */
 export async function prepareReveal(eventId: string, blockId: string, operatorId: string | null): Promise<BlockReveal | null> {
@@ -87,15 +78,17 @@ export async function prepareReveal(eventId: string, blockId: string, operatorId
     ai: false,
   };
 
-  const ai = await operatorAi(operatorId);
-  if (ai && reveal.before.length && reveal.after.length) {
+  if (reveal.before.length && reveal.after.length) {
     try {
-      const r = await generateLinks(ai.provider, ai.model, ai.key, block.title, reveal.before, reveal.after);
+      const { result: r, used } = await withAi(operatorId, (ai) =>
+        generateLinks(ai.provider, ai.model, ai.key, block.title, reveal.before, reveal.after),
+      );
       reveal.links = r.links;
       reveal.note = r.note;
       reveal.ai = true;
+      reveal.aiLabel = used.label;
     } catch (err) {
-      console.error("Collegamenti AI non riusciti:", err);
+      if (!(err instanceof NoAiError)) console.error("Collegamenti AI non riusciti:", err);
     }
   }
   await getDb().update(schema.blocks).set({ reveal }).where(eq(schema.blocks.id, block.id));
@@ -126,6 +119,7 @@ export interface Convergence {
   themes: Theme[];
   note: string;
   ai: boolean;
+  aiLabel?: string;
 }
 
 /** Strisce per argomento: tre parole grandi per blocco. */
@@ -187,15 +181,15 @@ export async function prepareConvergence(eventId: string, operatorId: string): P
   const ev = await eventById(eventId);
   const words = await computeCrownWords(eventId);
   const conv: Convergence = { version: 2, generatedAt: new Date().toISOString(), words, themes: [], note: "", ai: false };
-  const ai = await operatorAi(operatorId);
-  if (!ai) throw new ConvergenceError("Configura prima la tua chiave AI in Impostazioni AI: i macro-temi li genera l'AI");
   if (words.length < 3) throw new ConvergenceError("Servono più risposte nelle domande di fine blocco");
   try {
-    const r = await generateThemes(ai.provider, ai.model, ai.key, ev.title, words);
+    const { result: r, used } = await withAi(operatorId, (ai) => generateThemes(ai.provider, ai.model, ai.key, ev.title, words));
     conv.themes = r.themes;
     conv.note = r.note;
     conv.ai = true;
+    conv.aiLabel = used.label;
   } catch (err) {
+    if (err instanceof NoAiError) throw new ConvergenceError("Configura prima un profilo AI in Impostazioni AI: i macro-temi li genera l'AI");
     throw new ConvergenceError(err instanceof Error ? err.message : "Errore AI");
   }
   await getDb().update(schema.events).set({ aiSummary: conv }).where(eq(schema.events.id, eventId));

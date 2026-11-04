@@ -45,7 +45,9 @@ export const GET = api(async (req: Request, { params }: Ctx) => {
   if (mode === "reveal" && ev.screenBlockId) {
     const [b] = await getDb().select().from(schema.blocks).where(eq(schema.blocks.id, ev.screenBlockId)).limit(1);
     if (b?.reveal) {
-      return NextResponse.json({ ...base, reveal: { blockId: b.id, title: b.title, ...(b.reveal as BlockReveal) } }, noStore);
+      // eslint-disable-next-line @typescript-eslint/no-unused-vars
+      const { aiLabel, ...rv } = b.reveal as BlockReveal;
+      return NextResponse.json({ ...base, reveal: { blockId: b.id, title: b.title, ...rv } }, noStore);
     }
     return NextResponse.json({ ...base, mode: "preparing", preparingTitle: b?.title ?? "" }, noStore);
   }

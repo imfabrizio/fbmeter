@@ -610,3 +610,17 @@ details summary { cursor: pointer; font-weight: 600; }
 .c4p-g.t3 .c4p-theme { color: var(--t3); box-shadow: 0 0 22px rgb(71 224 185 / 0.3), inset 0 0 0 2px var(--t3); }
 .c4p-theme.plain { color: #fff; box-shadow: inset 0 0 0 2px rgb(255 255 255 / 0.4); }
 .c4p-note { margin: 4px 6px 6px; text-align: center; font-style: italic; color: #d7d8e6; opacity: 0; animation: c2Appear 1s ease both; }
+
+/* selettore AI nella regia */
+.ai-pick { display: flex; flex-direction: column; gap: 4px; border-top: 1px solid var(--border); padding-top: 12px; text-decoration: none; color: inherit; }
+.ai-pick select { font-size: 0.9rem; padding: 7px 10px; }
+.ai-pick.empty .small { color: var(--accent); font-weight: 600; }
+
+/* profili AI */
+.grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+@media (max-width: 640px) { .grid2 { grid-template-columns: 1fr; } }
+.pill { display: inline-block; font-size: 0.75rem; font-weight: 600; padding: 2px 8px; border-radius: 999px; background: var(--surface-2); color: var(--muted); }
+.pill.accent { background: var(--accent-soft); color: var(--accent); }
+.pill.ok { background: var(--ok-soft); color: var(--ok); }
+.pill.bad { background: var(--danger-soft); color: var(--danger); }
+.ai-card.default { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent) inset; }

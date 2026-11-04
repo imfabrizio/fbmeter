@@ -21,7 +21,7 @@ Il caso tipico, già pronto come modello alla creazione dell'evento, è la doman
 - **Aggregazione delle parole, su due livelli.**
   1. Automatica: maiuscole, accenti, punteggiatura, articoli e singolare/plurale (`utente` = `Utenti`, `identità` = `Identita`, `user` = `users`).
   2. Unioni di significato decise dall'operatore (`utenti` → `identità`), valide per inizio e fine del blocco e reversibili. Si possono fare a mano oppure con suggerimenti dell'AI, da confermare.
-- **AI personale.** Ogni operatore salva la propria chiave (Anthropic, Google Gemini o OpenAI). La chiave è cifrata nel database (AES-256-GCM) e non viene mai restituita. Se lo strumento passa a un altro team, ognuno usa la sua.
+- **AI personale, con più profili.** Ogni operatore salva uno o più profili AI (Anthropic, Google Gemini o OpenAI, con il modello che preferisce) e ne sceglie uno *predefinito*, anche al volo dalla barra laterale della regia. Se il predefinito non risponde (crediti finiti, chiave revocata, modello non disponibile) l'app prova da sola gli altri profili. Le chiavi sono cifrate nel database (AES-256-GCM) e non vengono mai restituite. Se lo strumento passa a un altro team, ognuno usa le sue.
 - **Q&A attivabile per evento.** Le domande si possono votare e, se si vuole, approvare prima della pubblicazione. Se il Q&A è spento non compare da nessuna parte.
 - **Login operatori** con Microsoft Entra ID e/o Google, in OpenID Connect standard. MFA e criteri di accesso sono quelli del vostro tenant. I nuovi utenti restano *in attesa* finché un amministratore non li abilita.
 - **Esportazione CSV**, compatibile con Excel in italiano. Due file: la classifica per blocco e tutte le risposte grezze, con forma scritta, chiave normalizzata e voce finale.
@@ -114,7 +114,7 @@ Un provider compare nella pagina di login solo se le sue variabili sono impostat
 | Ruolo | Cosa può fare |
 |---|---|
 | In attesa | Ha fatto l'accesso, ma non vede la regia |
-| Operatore | Crea e conduce eventi, modera il Q&A, gestisce la propria chiave AI |
+| Operatore | Crea e conduce eventi, modera il Q&A, gestisce i propri profili AI |
 | Amministratore | Come l'operatore, più la gestione degli utenti |
 
 - `ADMIN_EMAILS` serve solo per il primo amministratore: quegli indirizzi restano sempre amministratori e non si possono declassare dall'interfaccia.
