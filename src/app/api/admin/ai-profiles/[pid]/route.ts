@@ -1,7 +1,7 @@
 import { and, asc, eq, ne } from "drizzle-orm";
 import { NextResponse } from "next/server";
 import { getDb, schema } from "@/db";
-import { AI_PROVIDERS } from "@/lib/ai";
+import { AI_PROVIDERS, normalizeAzureEndpoint } from "@/lib/ai";
 import { profileById } from "@/lib/aiProfiles";
 import { encrypt } from "@/lib/crypto";
 import { HttpError, api, readJson, requireOperator } from "@/lib/session";
@@ -14,7 +14,7 @@ export const PATCH = api(async (req: Request, { params }: Ctx) => {
   const { pid } = await params;
   const p = await profileById(me.id, pid);
   if (!p) throw new HttpError(404, "Profilo non trovato");
-  const body = await readJson<{ label?: string; provider?: string; model?: string; apiKey?: string }>(req);
+  const body = await readJson<{ label?: string; provider?: string; model?: string; endpoint?: string; apiKey?: string }>(req);
   const provider = AI_PROVIDERS.find((x) => x.id === (body.provider ?? p.provider));
   if (!provider) throw new HttpError(400, "Fornitore non valido");
   const apiKey = (body.apiKey ?? "").trim();
@@ -22,12 +22,23 @@ export const PATCH = api(async (req: Request, { params }: Ctx) => {
   if (apiKey && apiKey.length < 20) throw new HttpError(400, "La chiave sembra troppo corta");
   const set: Partial<typeof schema.aiProfiles.$inferInsert> = { updatedAt: new Date(), provider: provider.id };
   if (body.label !== undefined) set.label = body.label.trim().slice(0, 60) || p.label;
-  if (body.model !== undefined) set.model = body.model.trim() || provider.defaultModel;
+  if (body.model !== undefined) set.model = body.model.trim() || provider.defaultModel || p.model;
+  if (provider.needsEndpoint) {
+    const raw = body.endpoint ?? p.endpoint ?? "";
+    if (!raw.trim()) throw new HttpError(400, "Inserisci l'endpoint della risorsa");
+    try {
+      set.endpoint = normalizeAzureEndpoint(raw);
+    } catch (e) {
+      throw new HttpError(400, (e as Error).message);
+    }
+  } else {
+    set.endpoint = null;
+  }
   if (apiKey) {
     set.keyCiphertext = encrypt(apiKey);
     set.keyHint = `…${apiKey.slice(-4)}`;
   }
-  if (apiKey || set.model !== p.model || set.provider !== p.provider) {
+  if (apiKey || (set.model ?? p.model) !== p.model || set.provider !== p.provider || (set.endpoint ?? null) !== p.endpoint) {
     set.lastTestOk = null;
     set.lastTestAt = null;
   }

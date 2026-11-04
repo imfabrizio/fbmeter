@@ -81,7 +81,7 @@ export async function prepareReveal(eventId: string, blockId: string, operatorId
   if (reveal.before.length && reveal.after.length) {
     try {
       const { result: r, used } = await withAi(operatorId, (ai) =>
-        generateLinks(ai.provider, ai.model, ai.key, block.title, reveal.before, reveal.after),
+        generateLinks(ai, block.title, reveal.before, reveal.after),
       );
       reveal.links = r.links;
       reveal.note = r.note;
@@ -183,7 +183,7 @@ export async function prepareConvergence(eventId: string, operatorId: string): P
   const conv: Convergence = { version: 2, generatedAt: new Date().toISOString(), words, themes: [], note: "", ai: false };
   if (words.length < 3) throw new ConvergenceError("Servono più risposte nelle domande di fine blocco");
   try {
-    const { result: r, used } = await withAi(operatorId, (ai) => generateThemes(ai.provider, ai.model, ai.key, ev.title, words));
+    const { result: r, used } = await withAi(operatorId, (ai) => generateThemes(ai, ev.title, words));
     conv.themes = r.themes;
     conv.note = r.note;
     conv.ai = true;

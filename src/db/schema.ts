@@ -36,9 +36,12 @@ export const aiProfiles = pgTable(
       .notNull()
       .references(() => users.id, { onDelete: "cascade" }),
     label: text("label").notNull(),
-    /** anthropic | google | openai */
+    /** anthropic | google | openai | azure */
     provider: text("provider").notNull(),
+    /** Per Azure è il nome del deployment. */
     model: text("model").notNull(),
+    /** Solo Azure OpenAI: https://<risorsa>.openai.azure.com */
+    endpoint: text("endpoint"),
     keyCiphertext: text("key_ciphertext").notNull(),
     keyHint: text("key_hint").notNull(),
     isDefault: boolean("is_default").notNull().default(false),

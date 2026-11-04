@@ -1,0 +1,1 @@
+ALTER TABLE "ai_profiles" ADD COLUMN "endpoint" text;

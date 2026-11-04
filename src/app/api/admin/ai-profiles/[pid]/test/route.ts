@@ -25,7 +25,7 @@ export const POST = api(async (_req: Request, { params }: Ctx) => {
   const started = Date.now();
   let error: string | null = null;
   try {
-    await testKey(p.provider as AiProvider, p.model, key);
+    await testKey({ provider: p.provider as AiProvider, model: p.model, key, endpoint: p.endpoint });
   } catch (err) {
     error = err instanceof Error ? err.message : "Test fallito";
   }

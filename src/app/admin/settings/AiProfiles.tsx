@@ -9,6 +9,7 @@ interface Profile {
   label: string;
   provider: string;
   model: string;
+  endpoint: string | null;
   keyHint: string;
   isDefault: boolean;
   lastTestOk: boolean | null;
@@ -89,7 +90,15 @@ function ProfileCard({ p, providers, onEdit, reload }: { p: Profile; providers: 
             {status}
           </div>
           <div className="small muted" style={{ marginTop: 4 }}>
-            {prov?.label ?? p.provider} · <code>{p.model}</code> · chiave <code>{p.keyHint}</code>
+            {prov?.label ?? p.provider} · {prov?.needsEndpoint ? "deployment " : ""}
+            <code>{p.model}</code>
+            {p.endpoint && (
+              <>
+                {" "}
+                su <code>{p.endpoint.replace(/^https:\/\//, "")}</code>
+              </>
+            )}{" "}
+            · chiave <code>{p.keyHint}</code>
           </div>
         </div>
         <div className="row" style={{ gap: 6 }}>
@@ -139,6 +148,7 @@ function ProfileForm({
   const prov = providers.find((p) => p.id === provider)!;
   const [model, setModel] = useState(profile?.model ?? prov.defaultModel);
   const [label, setLabel] = useState(profile?.label ?? "");
+  const [endpoint, setEndpoint] = useState(profile?.endpoint ?? "");
   const [apiKey, setApiKey] = useState("");
   const [makeDefault, setMakeDefault] = useState(false);
   const [test, setTest] = useState(true);
@@ -146,7 +156,8 @@ function ProfileForm({
   const [msg, setMsg] = useState<Msg>(null);
   const keepKey = !!profile && profile.provider === provider;
   const known = prov.models.some((m) => m.id === model);
-  const [custom, setCustom] = useState(!!profile && !providers.find((p) => p.id === profile.provider)?.models.some((m) => m.id === profile.model));
+  const [customPick, setCustom] = useState(!!profile && !providers.find((p) => p.id === profile.provider)?.models.some((m) => m.id === profile.model));
+  const custom = customPick || prov.models.length === 0;
 
   function changeProvider(id: string) {
     setProvider(id);
@@ -161,12 +172,12 @@ function ProfileForm({
     try {
       let id = profile?.id;
       if (profile) {
-        await postJson(`/api/admin/ai-profiles/${profile.id}`, { label, provider, model, apiKey }, "PATCH");
+        await postJson(`/api/admin/ai-profiles/${profile.id}`, { label, provider, model, endpoint, apiKey }, "PATCH");
       } else {
-        const r = await postJson<{ id: string }>("/api/admin/ai-profiles", { label, provider, model, apiKey, isDefault: makeDefault });
+        const r = await postJson<{ id: string }>("/api/admin/ai-profiles", { label, provider, model, endpoint, apiKey, isDefault: makeDefault });
         id = r.id;
       }
-      if (test && id && (apiKey || !profile || model !== profile.model)) {
+      if (test && id && (apiKey || !profile || model !== profile.model || endpoint !== (profile.endpoint ?? ""))) {
         try {
           await postJson(`/api/admin/ai-profiles/${id}/test`);
         } catch (e) {
@@ -198,9 +209,14 @@ function ProfileForm({
           </select>
         </label>
         <label className="field">
-          <span>Modello</span>
+          <span>{prov.modelLabel ?? "Modello"}</span>
           {custom ? (
-            <input type="text" value={model} onChange={(e) => setModel(e.target.value)} placeholder={prov.defaultModel} />
+            <input
+              type="text"
+              value={model}
+              onChange={(e) => setModel(e.target.value)}
+              placeholder={prov.defaultModel || (prov.needsEndpoint ? "es. gpt-4.1-mini" : "")}
+            />
           ) : (
             <select
               value={known ? model : prov.defaultModel}
@@ -216,9 +232,16 @@ function ProfileForm({
           )}
         </label>
       </div>
+      <HowTo prov={prov} key={prov.id} open={!profile} />
+      {prov.needsEndpoint && (
+        <label className="field">
+          <span>Endpoint della risorsa</span>
+          <input type="url" value={endpoint} onChange={(e) => setEndpoint(e.target.value)} placeholder="https://nome-risorsa.openai.azure.com" autoComplete="off" />
+        </label>
+      )}
       <label className="field">
         <span>Nome del profilo (facoltativo)</span>
-        <input type="text" value={label} onChange={(e) => setLabel(e.target.value)} placeholder={`${prov.short} · ${model || prov.defaultModel}`} maxLength={60} />
+        <input type="text" value={label} onChange={(e) => setLabel(e.target.value)} placeholder={`${prov.short} · ${model || prov.defaultModel || "…"}`} maxLength={60} />
       </label>
       <label className="field">
         <span>
@@ -227,9 +250,9 @@ function ProfileForm({
             dove la trovo ↗
           </a>
         </span>
-        <input type="password" value={apiKey} onChange={(e) => setApiKey(e.target.value)} autoComplete="off" placeholder={`${prov.keyPrefix}…`} />
+        <input type="password" value={apiKey} onChange={(e) => setApiKey(e.target.value)} autoComplete="off" placeholder={prov.keyPrefix ? `${prov.keyPrefix}…` : "KEY 1 della risorsa"} />
       </label>
-      {apiKey && !apiKey.trim().startsWith(prov.keyPrefix) && (
+      {apiKey && prov.keyPrefix && !apiKey.trim().startsWith(prov.keyPrefix) && (
         <div className="alert warn small">
           Le chiavi {prov.short} di solito iniziano con <code>{prov.keyPrefix}</code>: controlla di aver scelto il fornitore giusto.
         </div>
@@ -248,7 +271,11 @@ function ProfileForm({
       </div>
       {msg && <div className={`alert ${msg.kind}`}>{msg.text}</div>}
       <div className="row">
-        <button className="btn primary" disabled={busy || (!keepKey && apiKey.trim().length < 20)} onClick={save}>
+        <button
+          className="btn primary"
+          disabled={busy || (!keepKey && apiKey.trim().length < 20) || !model.trim() || (!!prov.needsEndpoint && !endpoint.trim())}
+          onClick={save}
+        >
           {busy ? "Salvataggio…" : "Salva"}
         </button>
         {(onCancel || profile) && (
@@ -258,5 +285,33 @@ function ProfileForm({
         )}
       </div>
     </div>
+  );
+}
+
+/** Mini guida per collegare il fornitore scelto. */
+function HowTo({ prov, open }: { prov: ProviderInfo; open: boolean }) {
+  return (
+    <details className="howto" open={open}>
+      <summary>Come collegare {prov.short}</summary>
+      <ol>
+        {prov.howto.steps.map((s, i) => (
+          <li key={i}>{s}</li>
+        ))}
+      </ol>
+      {prov.howto.notes && (
+        <ul className="howto-notes">
+          {prov.howto.notes.map((n, i) => (
+            <li key={i}>{n}</li>
+          ))}
+        </ul>
+      )}
+      <div className="row" style={{ gap: 12 }}>
+        {prov.howto.links.map((l) => (
+          <a key={l.url} href={l.url} target="_blank" rel="noreferrer" className="small">
+            {l.label} ↗
+          </a>
+        ))}
+      </div>
+    </details>
   );
 }

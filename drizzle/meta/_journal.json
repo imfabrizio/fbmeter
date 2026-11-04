@@ -50,6 +50,13 @@
       "when": 1793792959993,
       "tag": "0006_drop_ai_settings",
       "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1793794458957,
+      "tag": "0007_ai_endpoint",
+      "breakpoints": true
     }
   ]
 }

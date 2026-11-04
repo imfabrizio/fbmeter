@@ -1,14 +1,11 @@
 import { and, asc, desc, eq } from "drizzle-orm";
 import { getDb, schema } from "@/db";
-import type { AiProvider } from "./ai";
+import type { AiProvider, AiTarget } from "./ai";
 import { decrypt } from "./crypto";
 
-export interface AiCreds {
+export interface AiCreds extends AiTarget {
   profileId: string;
   label: string;
-  provider: AiProvider;
-  model: string;
-  key: string;
 }
 
 export type AiProfileRow = typeof schema.aiProfiles.$inferSelect;
@@ -33,7 +30,14 @@ export async function profileById(userId: string, id: string): Promise<AiProfile
 
 function toCreds(p: AiProfileRow): AiCreds | null {
   try {
-    return { profileId: p.id, label: p.label, provider: p.provider as AiProvider, model: p.model, key: decrypt(p.keyCiphertext) };
+    return {
+      profileId: p.id,
+      label: p.label,
+      provider: p.provider as AiProvider,
+      model: p.model,
+      endpoint: p.endpoint,
+      key: decrypt(p.keyCiphertext),
+    };
   } catch {
     return null; // chiave cifrata con un'altra APP_ENCRYPTION_KEY
   }

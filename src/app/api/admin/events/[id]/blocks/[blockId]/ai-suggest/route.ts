@@ -37,7 +37,7 @@ export const POST = api(async (req: Request, { params }: Ctx) => {
   try {
     const { result: groups, used, failed } = await withAi(
       me.id,
-      (ai) => suggestGroups(ai.provider, ai.model, ai.key, block.title, words),
+      (ai) => suggestGroups(ai, block.title, words),
       body.profileId,
     );
     const byLabel = new Map(words.map((w) => [w.label, w]));
