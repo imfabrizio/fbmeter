@@ -18,17 +18,22 @@ export interface RevealWord {
   key: string;
 }
 
+/** Versione del formato: le rivelazioni più vecchie vengono ricalcolate prima di mostrarle. */
+export const REVEAL_VERSION = 3;
+
 export interface BlockReveal {
+  /** 3 = podio completo (3 voci) su ogni lato, rimaste incluse */
+  v?: number;
   preparedAt: string;
   beforeLabel: string;
   afterLabel: string;
   beforeRespondents: number;
   afterRespondents: number;
-  /** podio del prima senza le parole rimaste */
+  /** podio del prima (max 3, rimaste incluse) */
   before: RevealWord[];
   /** parole presenti in entrambi i podi */
   common: RevealWord[];
-  /** podio del dopo senza le parole rimaste */
+  /** podio del dopo (max 3, rimaste incluse) */
   after: RevealWord[];
   links: EvolutionLink[];
   note: string;
@@ -83,6 +88,7 @@ export async function prepareReveal(eventId: string, blockId: string, operatorId
   const after = post;
 
   const reveal: BlockReveal = {
+    v: REVEAL_VERSION,
     preparedAt: new Date().toISOString(),
     beforeLabel: pair[0].label || "Prima",
     afterLabel: pair[1].label || "Dopo",

@@ -2,7 +2,7 @@ import { and, eq } from "drizzle-orm";
 import { NextResponse } from "next/server";
 import { getDb, schema } from "@/db";
 import { eventById } from "@/lib/events";
-import { prepareReveal } from "@/lib/reveal";
+import { REVEAL_VERSION, prepareReveal, type BlockReveal } from "@/lib/reveal";
 import { HttpError, api, readJson, requireOperator } from "@/lib/session";
 
 type Ctx = { params: Promise<{ id: string; blockId: string }> };
@@ -28,7 +28,8 @@ export const POST = api(async (req: Request, { params }: Ctx) => {
   if (!block) throw new HttpError(404, "Blocco non trovato");
 
   let reveal = block.reveal;
-  if (!reveal || body.refresh) {
+  // preparata con una versione precedente del formato: si ricalcola
+  if (!reveal || body.refresh || (reveal as BlockReveal).v !== REVEAL_VERSION) {
     reveal = await prepareReveal(ev.id, block.id, me.id);
     if (!reveal) throw new HttpError(400, "Per il prima/dopo servono almeno due domande a parole nel blocco");
   }

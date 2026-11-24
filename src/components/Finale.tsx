@@ -31,8 +31,15 @@ export function RevealView({ data }: { data: RevealData }) {
   const stay = new Set(common.map((w) => w.label));
   // ogni colonna mostra il suo podio; le rimaste stanno su entrambi i lati (per i dati
   // preparati con la versione precedente, dove le rimaste erano solo al centro, si aggiungono)
-  const before = [...data.before, ...common.filter((c) => !data.before.some((w) => w.label === c.label))];
-  const after = [...common.filter((c) => !data.after.some((w) => w.label === c.label)), ...data.after];
+  const SIDE = 3;
+  // mai più di 3 per lato: se avanzano, si tolgono le ultime in classifica non rimaste (l'ordine resta quello del podio)
+  const fit = (list: typeof data.before) => {
+    const out = [...list];
+    for (let i = out.length - 1; out.length > SIDE && i >= 0; i--) if (!stay.has(out[i].label)) out.splice(i, 1);
+    return out.slice(0, SIDE);
+  };
+  const before = fit([...data.before, ...common.filter((c) => !data.before.some((w) => w.label === c.label))]);
+  const after = fit([...common.filter((c) => !data.after.some((w) => w.label === c.label)), ...data.after]);
   const base = 54;
   const yB = (label: string) => rowY(before.findIndex((w) => w.label === label), before.length, 24, base);
   const yA = (label: string) => rowY(after.findIndex((w) => w.label === label), after.length, 24, base);
