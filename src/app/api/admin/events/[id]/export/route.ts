@@ -43,7 +43,7 @@ export const GET = api(async (req: Request, { params }: Ctx) => {
         const r = it.result;
         if (r.type === "words") {
           r.words.forEach((w, i) =>
-            rows.push([...base, i + 1, w.label, w.count, pct(w.count), w.forms.map((f) => `${f.text} (${f.count})`).join(", ")]),
+            rows.push([...base, i + 1, w.label, w.count, pct(w.count), (w.discarded ? "[scartata dall'AI] " : "") + w.forms.map((f) => `${f.text} (${f.count})`).join(", ")]),
           );
         } else if (r.type === "choice" || r.type === "quiz") {
           [...r.options]

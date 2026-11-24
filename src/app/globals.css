@@ -628,3 +628,10 @@ details summary { cursor: pointer; font-weight: 600; }
 .howto summary { cursor: pointer; font-weight: 700; color: var(--accent); }
 .howto ol { margin: 10px 0 8px; padding-left: 20px; display: flex; flex-direction: column; gap: 6px; }
 .howto-notes { margin: 0 0 10px; padding-left: 18px; color: var(--muted); font-size: 0.875rem; display: flex; flex-direction: column; gap: 4px; }
+
+/* scelta delle parole */
+.rank-row { border-top: 1px solid var(--border); padding-top: 10px; }
+.rank-podium { display: flex; gap: 6px; flex-wrap: wrap; }
+.rank-podium small { opacity: 0.7; font-weight: 500; }
+.pill.discard { border: 1px dashed var(--border); background: transparent; cursor: pointer; text-decoration: line-through; }
+.pill.discard:hover { text-decoration: none; color: var(--accent); border-color: var(--accent); }

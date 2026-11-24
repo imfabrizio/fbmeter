@@ -3,6 +3,7 @@ import { NextResponse } from "next/server";
 import { getDb, schema } from "@/db";
 import { blocksWithQuestions, eventById, questionLabel, questionResults } from "@/lib/events";
 import { HttpError, api, requireOperator } from "@/lib/session";
+import { wordsSignature } from "@/lib/words";
 
 type Ctx = { params: Promise<{ id: string; blockId: string }> };
 
@@ -18,7 +19,31 @@ export const GET = api(async (_req: Request, { params }: Ctx) => {
 
   const wordQs = block.questions.filter((q) => q.type === "words");
   const results = await questionResults(wordQs);
-  const columns = wordQs.map((q) => ({ id: q.id, label: questionLabel(q, block), respondents: results.get(q.id)!.respondents }));
+  // la scelta AI: firma calcolata sulle voci grezze, per capire se è ancora valida
+  const raw = await questionResults(wordQs.map((q) => ({ ...q, aiRank: null })));
+  const columns = wordQs.map((q) => {
+    const r = results.get(q.id)!;
+    const words = r.type === "words" ? r.words : [];
+    const rawWords = raw.get(q.id)?.type === "words" ? (raw.get(q.id) as { words: typeof words }).words : [];
+    return {
+      id: q.id,
+      label: questionLabel(q, block),
+      respondents: r.respondents,
+      podium: words.filter((w) => !w.discarded).slice(0, 3).map((w) => ({ label: w.label, count: w.count })),
+      tiedAtCut: (() => {
+        const ok = words.filter((w) => !w.discarded);
+        return ok.length > 3 && ok[2].count === ok[3].count;
+      })(),
+      rank: q.aiRank
+        ? {
+            by: q.aiRank.by,
+            at: q.aiRank.at,
+            stale: q.aiRank.sig !== wordsSignature(rawWords),
+            discarded: words.filter((w) => w.discarded).map((w) => ({ key: w.key, label: w.label, count: w.count })),
+          }
+        : null,
+    };
+  });
 
   const rows = new Map<string, { key: string; label: string; counts: Record<string, number>; forms: string[] }>();
   for (const q of wordQs) {

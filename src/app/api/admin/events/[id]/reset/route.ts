@@ -26,6 +26,7 @@ export const POST = api(async (req: Request, { params }: Ctx) => {
       for (const b of blocks) await tx.delete(schema.aliases).where(eq(schema.aliases.blockId, b.id));
     }
     await tx.update(schema.blocks).set({ reveal: null }).where(eq(schema.blocks.eventId, ev.id));
+    await tx.update(schema.questions).set({ aiRank: null }).where(eq(schema.questions.eventId, ev.id));
     await tx
       .update(schema.events)
       .set({ activeQuestionId: null, screenMode: "live", screenBlockId: null, teaserBlockId: null, teaserRevealed: false, resultsPublished: false, aiSummary: null })

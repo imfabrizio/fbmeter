@@ -2,7 +2,7 @@
  * Tipi di domanda: validazione delle risposte e calcolo dei risultati.
  * Aggiungere un tipo = aggiungerlo qui, nel form del telefono e nel grafico del proiettore.
  */
-import { aggregate, sanitizeSubmission, type AliasMap, type WordStat } from "./words";
+import { aggregate, rankWords, sanitizeSubmission, type AliasMap, type WordRank, type WordStat } from "./words";
 
 export type QType = "words" | "choice" | "scale" | "open" | "quiz";
 
@@ -125,7 +125,7 @@ export type QuestionResult =
     }
   | { type: "open"; respondents: number; items: { text: string; nickname: string }[] };
 
-export function computeResult(q: QuestionConfig, rows: AnswerRow[], aliases?: AliasMap): QuestionResult {
+export function computeResult(q: QuestionConfig, rows: AnswerRow[], aliases?: AliasMap, rank?: WordRank | null): QuestionResult {
   const respondents = rows.length;
   switch (q.type) {
     case "choice":
@@ -164,13 +164,14 @@ export function computeResult(q: QuestionConfig, rows: AnswerRow[], aliases?: Al
       return { type: "open", respondents, items };
     }
     default:
-      return { type: "words", respondents, words: aggregate(rows.map((r) => r.words), aliases) };
+      return { type: "words", respondents, words: rankWords(aggregate(rows.map((r) => r.words), aliases), rank) };
   }
 }
 
 /** Versione compatta per il proiettore e per le API pubbliche. */
 export function slimResult(r: QuestionResult, maxWords = 60) {
-  if (r.type === "words") return { ...r, words: r.words.slice(0, maxWords).map((w) => ({ label: w.label, count: w.count })) };
+  if (r.type === "words")
+    return { ...r, words: r.words.filter((w) => !w.discarded).slice(0, maxWords).map((w) => ({ label: w.label, count: w.count })) };
   if (r.type === "open") return { ...r, items: r.items.slice(0, 30).map((i) => ({ text: i.text, nickname: "" })) };
   return r;
 }
@@ -179,7 +180,7 @@ export function slimResult(r: QuestionResult, maxWords = 60) {
 export function headline(r: QuestionResult): string {
   switch (r.type) {
     case "words":
-      return r.words.slice(0, 3).map((w) => w.label).join(", ");
+      return r.words.filter((w) => !w.discarded).slice(0, 3).map((w) => w.label).join(", ");
     case "choice":
     case "quiz": {
       const top = [...r.options].sort((a, b) => b.count - a.count)[0];

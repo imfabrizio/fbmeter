@@ -159,5 +159,6 @@ Per modificare il modello dati: cambia `src/db/schema.ts`, esegui `npm run db:ge
 ## Limiti noti
 
 - L'aggiornamento è periodico: con 100 persone collegate per due ore sono circa 150–200 mila richieste. Restano nei limiti dei piani gratuiti, ma conviene saperlo.
+- **Quali parole vanno sul podio.** Conta prima il numero di persone che hanno scritto la parola. A parità, alla chiusura di ogni domanda a parole l'AI predefinita ordina le voci per rappresentatività e scarta quelle senza senso, scherzose o fuori tema: queste spariscono da proiettore, telefoni e PDF, ma restano nell'export segnate come scartate. Senza AI, a parità vince la voce con più parentele con le altre risposte. Nella scheda *Parole e unioni* si vede la scelta, si può rifare, annullare o rimettere una parola scartata.
 - La normalizzazione automatica è euristica: qualche falsa unione è possibile tra parole brevi molto simili. Le unioni manuali possono solo aggiungere raggruppamenti, quindi una falsa unione automatica resta e si vede nell'export, dove è riportata la forma originale.
 - Non c'è un limite di frequenza sulle risposte oltre a quello del Q&A. Per eventi molto grandi o aperti al pubblico conviene metterne uno a livello di reverse proxy.

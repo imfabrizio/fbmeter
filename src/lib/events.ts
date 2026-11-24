@@ -3,7 +3,7 @@ import { getDb, schema } from "@/db";
 import { sha256 } from "./crypto";
 import { computeResult, type AnswerRow, type QuestionConfig, type QuestionResult } from "./questions";
 import { HttpError } from "./session";
-import type { AliasMap, WordStat } from "./words";
+import type { AliasMap, WordRank, WordStat } from "./words";
 
 export type EventRow = typeof schema.events.$inferSelect;
 export type BlockRow = typeof schema.blocks.$inferSelect;
@@ -113,7 +113,7 @@ export async function questionResults(questions: QuestionRow[]): Promise<Map<str
   const maps = await aliasMaps([...new Set(questions.map((q) => q.blockId))]);
   for (const q of questions) {
     const answers: AnswerRow[] = rows.filter((r) => r.questionId === q.id);
-    out.set(q.id, computeResult(q as QuestionConfig, answers, maps.get(q.blockId)));
+    out.set(q.id, computeResult(q as QuestionConfig, answers, maps.get(q.blockId), (q as { aiRank?: WordRank | null }).aiRank));
   }
   return out;
 }
@@ -152,10 +152,10 @@ export async function eventSummary(eventId: string, opts: { all?: boolean } = {}
           if (prev) {
             const pr = results.get(prev.id)!;
             if (pr.type === "words") {
-              const top = pr.words.slice(0, 3);
+              const top = pr.words.filter((w) => !w.discarded).slice(0, 3);
               const keys = new Set(top.map((w) => w.key));
               item.before = { label: questionLabel(prev, b), respondents: pr.respondents, top };
-              item.newWords = result.words.slice(0, 3).filter((w) => !keys.has(w.key)).map((w) => w.label);
+              item.newWords = result.words.filter((w) => !w.discarded).slice(0, 3).filter((w) => !keys.has(w.key)).map((w) => w.label);
             }
           }
         }
@@ -248,6 +248,7 @@ export async function overallTopWords(eventId: string, n = 5): Promise<{ label: 
   for (const r of results.values()) {
     if (r.type !== "words") continue;
     for (const w of r.words) {
+      if (w.discarded) continue;
       const m = merged.get(w.key) ?? { label: w.label, count: 0 };
       m.count += w.count;
       merged.set(w.key, m);

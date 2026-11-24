@@ -51,6 +51,80 @@ export interface WordStat {
   /** Forme originali confluite nella voce, con quante volte sono state scritte. */
   forms: { text: string; count: number }[];
   merged: boolean;
+  /** Scartata dalla revisione AI (senza senso, battuta, fuori tema): va in fondo e non va sul proiettore. */
+  discarded?: boolean;
+}
+
+/**
+ * Scelta salvata per una domanda a parole: a parità di persone, l'ordine di
+ * rappresentatività deciso dall'AI, e le voci da scartare. `sig` dice su quali
+ * risposte è stata fatta: se cambiano, la scelta va rifatta.
+ */
+export interface WordRank {
+  at: string;
+  sig: string;
+  /** chiavi dalla più rappresentativa */
+  order: string[];
+  /** chiavi scartate */
+  discard: string[];
+  /** chi ha deciso: nome del profilo AI, oppure "manuale" */
+  by: string;
+}
+
+/** Firma delle risposte aggregate: cambia se arrivano risposte o si uniscono parole. */
+export function wordsSignature(words: WordStat[]): string {
+  const s = words
+    .map((w) => `${w.key}:${w.count}`)
+    .sort()
+    .join("|");
+  let h = 5381;
+  for (let i = 0; i < s.length; i++) h = ((h << 5) + h + s.charCodeAt(i)) | 0;
+  return `${words.length}-${(h >>> 0).toString(36)}`;
+}
+
+/**
+ * Senza AI: quanto una voce è "imparentata" con le altre risposte (radici comuni,
+ * es. "zero trust" e "trust", "autenticazione" e "autenticazioni forti").
+ */
+export function relatedness(words: WordStat[]): Map<string, number> {
+  const roots = (key: string) => key.split(" ").filter((t) => t.length >= 4).map((t) => t.slice(0, 5));
+  const byWord = words.map((w) => ({ key: w.key, count: w.count, roots: new Set(roots(w.key)) }));
+  const out = new Map<string, number>();
+  for (const a of byWord) {
+    let score = 0;
+    for (const b of byWord) {
+      if (a.key === b.key) continue;
+      for (const r of a.roots) {
+        if (b.roots.has(r)) {
+          score += b.count;
+          break;
+        }
+      }
+    }
+    out.set(a.key, score);
+  }
+  return out;
+}
+
+/**
+ * Ordine finale: prima il numero di persone (sempre decisivo), poi a parità la
+ * rappresentatività scelta dall'AI, poi le parentele con altre risposte, poi
+ * l'alfabeto. Le voci scartate vanno in fondo.
+ */
+export function rankWords(words: WordStat[], rank?: WordRank | null): WordStat[] {
+  const discard = new Set(rank?.discard ?? []);
+  const pos = new Map((rank?.order ?? []).map((k, i) => [k, i]));
+  const rel = relatedness(words);
+  return words
+    .map((w) => (discard.has(w.key) ? { ...w, discarded: true } : w))
+    .sort(
+      (a, b) =>
+        Number(!!a.discarded) - Number(!!b.discarded) ||
+        b.count - a.count ||
+        (pos.get(a.key) ?? 1e6) - (pos.get(b.key) ?? 1e6) ||
+        (rel.get(b.key) ?? 0) - (rel.get(a.key) ?? 0) ||
+        a.label.localeCompare(b.label, "it"),
+    );
 }
 
 /**

@@ -2,7 +2,8 @@ import { and, eq } from "drizzle-orm";
 import { NextResponse, after } from "next/server";
 import { getDb, schema } from "@/db";
 import { blocksWithQuestions, eventById, locateQuestion } from "@/lib/events";
-import { prepareReveal, revealPair } from "@/lib/reveal";
+import { ensureFinalRanks, prepareReveal, revealPair } from "@/lib/reveal";
+import { ensureRank } from "@/lib/wordRank";
 import { HttpError, api, readJson, requireOperator } from "@/lib/session";
 
 type Ctx = { params: Promise<{ id: string }> };
@@ -55,9 +56,11 @@ export const POST = api(async (req: Request, { params }: Ctx) => {
 
   // si sta chiudendo la domanda di fine di un blocco? → suspense sui telefoni + preparazione
   let closedBlockId: string | null = null;
+  let closedWords: { q: NonNullable<ReturnType<typeof locateQuestion>>["question"]; topic: string } | null = null;
   if (changingQuestion && ev.activeQuestionId) {
     const blocks = await blocksWithQuestions(ev.id);
     const loc = locateQuestion(blocks, ev.activeQuestionId);
+    if (loc?.question.type === "words") closedWords = { q: loc.question, topic: loc.block.title };
     const pair = loc ? revealPair(loc.block) : null;
     if (loc && pair && pair[1].id === ev.activeQuestionId) {
       closedBlockId = loc.block.id;
@@ -76,10 +79,14 @@ export const POST = api(async (req: Request, { params }: Ctx) => {
   }
   if (body.screenBlockId !== undefined) patch.screenBlockId = body.screenBlockId;
 
+  // passando al finale: prima la scelta delle parole più sensate di ogni blocco (max ~20 s)
+  if (body.screenMode === "strips" || body.screenMode === "crown") await ensureFinalRanks(ev.id, me.id);
+
   if (Object.keys(patch).length) await db.update(schema.events).set(patch).where(eq(schema.events.id, ev.id));
 
   // la preparazione (con l'AI) gira dopo la risposta, così la regia non aspetta
   if (closedBlockId) {
+    // prima/dopo: include anche la scelta delle parole di entrambe le domande
     const blockId = closedBlockId;
     after(async () => {
       try {
@@ -87,6 +94,12 @@ export const POST = api(async (req: Request, { params }: Ctx) => {
       } catch (err) {
         console.error("Preparazione rivelazione non riuscita:", err);
       }
+    });
+  } else if (closedWords) {
+    // altra domanda a parole chiusa: l'AI sceglie subito le più sensate, così il finale è già pronto
+    const cw = closedWords;
+    after(async () => {
+      await ensureRank(cw.q, cw.topic, me.id);
     });
   }
   return NextResponse.json({ ok: true, preparing: closedBlockId });

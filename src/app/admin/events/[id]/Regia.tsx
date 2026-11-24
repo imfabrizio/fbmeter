@@ -610,7 +610,14 @@ interface WordRow {
 }
 interface WordsData {
   block: { id: string; title: string };
-  columns: { id: string; label: string; respondents: number }[];
+  columns: {
+    id: string;
+    label: string;
+    respondents: number;
+    podium: { label: string; count: number }[];
+    tiedAtCut: boolean;
+    rank: { by: string; at: string; stale: boolean; discarded: { key: string; label: string; count: number }[] } | null;
+  }[];
   words: WordRow[];
   aliases: { sourceKey: string; targetLabel: string }[];
 }
@@ -698,6 +705,86 @@ function WordsTab({ eventId, blocks }: { eventId: string; blocks: Block[] }) {
       </p>
       {error && <div className="alert warn">{error}</div>}
       {msg && <div className={`alert ${msg.kind}`}>{msg.text}</div>}
+
+      {data && data.columns.some((c) => c.respondents > 0) && (
+        <div className="card stack">
+          <h3 style={{ margin: 0 }}>Le parole scelte</h3>
+          <p className="small muted" style={{ margin: 0 }}>
+            Vince chi è stato scritto da più persone. A parità, alla chiusura della domanda l&apos;AI mette prima le parole più
+            rappresentative e scarta quelle senza senso, scherzose o fuori tema.
+          </p>
+          {data.columns
+            .filter((c) => c.respondents > 0)
+            .map((c) => {
+              const act = (action: string, key?: string) =>
+                run(async () => {
+                  const r = await postJson<{ revealUpdated: boolean; convergenceStale: boolean; error?: string }>(`${base}/rank`, {
+                    questionId: c.id,
+                    action,
+                    key,
+                  });
+                  const extra = [
+                    r.revealUpdated ? "Prima/dopo aggiornato." : "",
+                    r.convergenceStale ? "Se hai già preparato la convergenza, rigenerala dal Finale." : "",
+                    r.error ?? "",
+                  ]
+                    .filter(Boolean)
+                    .join(" ");
+                  setMsg({ kind: r.error ? "error" : "ok", text: `${c.label}: scelta aggiornata. ${extra}`.trim() });
+                });
+              const how = !c.rank
+                ? "non ancora fatta (parte alla chiusura della domanda)"
+                : c.rank.by === "manuale"
+                  ? "solo conteggi (scelta AI annullata)"
+                  : c.rank.by
+                    ? `fatta da ${c.rank.by} alle ${new Date(c.rank.at).toLocaleTimeString("it-IT", { hour: "2-digit", minute: "2-digit" })}`
+                    : "non necessaria (3 voci o meno)";
+              return (
+                <div key={c.id} className="rank-row">
+                  <div className="spread" style={{ alignItems: "flex-start", gap: 12, flexWrap: "wrap" }}>
+                    <div className="stack" style={{ gap: 4 }}>
+                      <div>
+                        <b>{c.label}</b> <span className="small muted">· {c.respondents} risposte</span>
+                      </div>
+                      <div className="rank-podium">
+                        {c.podium.map((w, i) => (
+                          <span key={w.label} className="pill accent">
+                            {i + 1}. {w.label} <small>({w.count})</small>
+                          </span>
+                        ))}
+                      </div>
+                      <div className="tiny muted">
+                        Scelta: {how}
+                        {c.rank?.stale && " · arrivate nuove risposte o unioni: verrà rifatta al prossimo passo"}
+                        {!c.rank && c.tiedAtCut && " · ora a parità decide la vicinanza tra parole"}
+                      </div>
+                    </div>
+                    <div className="row" style={{ gap: 6 }}>
+                      <button className="btn sm" disabled={busy} onClick={() => act("redo")}>
+                        ✨ {c.rank?.by && c.rank.by !== "manuale" ? "Rifai" : "Scegli"} con l&apos;AI
+                      </button>
+                      {c.rank && c.rank.by !== "manuale" && c.rank.by && (
+                        <button className="btn sm ghost" disabled={busy} onClick={() => act("clear")}>
+                          Annulla scelta AI
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                  {!!c.rank?.discarded.length && (
+                    <div className="row small" style={{ gap: 6, marginTop: 6, flexWrap: "wrap" }}>
+                      <span className="muted">Scartate:</span>
+                      {c.rank.discarded.map((w) => (
+                        <button key={w.key} className="pill discard" disabled={busy} onClick={() => act("restore", w.key)} title="Rimetti questa parola">
+                          {w.label} ({w.count}) ↺
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+        </div>
+      )}
 
       {ai && ai.length > 0 && (
         <div className="card stack">

@@ -9,6 +9,7 @@ import { generateLinks, generateThemes, type EvolutionLink, type Theme } from ".
 import { NoAiError, withAi } from "./aiProfiles";
 import { blocksWithQuestions, eventById, questionResults, type BlockWithQuestions, type QuestionRow } from "./events";
 import { headline, type QuestionResult } from "./questions";
+import { ensureRanks } from "./wordRank";
 import { wordKey, type WordStat } from "./words";
 
 export interface RevealWord {
@@ -48,16 +49,29 @@ export function resultQuestion(block: BlockWithQuestions): QuestionRow | null {
   return words.find((q) => q.inSummary) ?? words[words.length - 1] ?? block.questions.find((q) => q.inSummary) ?? null;
 }
 
-const top = (r: QuestionResult | undefined, n = 3): WordStat[] => (r?.type === "words" ? r.words.slice(0, n) : []);
+/** Scelta delle parole per le domande "risultato" di tutti i blocchi (finale). */
+export async function ensureFinalRanks(eventId: string, operatorId: string | null, timeoutMs?: number) {
+  const blocks = await blocksWithQuestions(eventId);
+  const items = blocks.flatMap((b) => {
+    const q = resultQuestion(b);
+    return q ? [{ q, topic: b.title }] : [];
+  });
+  await ensureRanks(items, operatorId, timeoutMs);
+}
+
+const top = (r: QuestionResult | undefined, n = 3): WordStat[] => (r?.type === "words" ? r.words.filter((w) => !w.discarded).slice(0, n) : []);
 const asReveal = (w: WordStat): RevealWord => ({ label: w.label, count: w.count, key: w.key });
 
 /** Calcola (e con l'AI arricchisce) la rivelazione di un blocco, e la salva. */
 export async function prepareReveal(eventId: string, blockId: string, operatorId: string | null): Promise<BlockReveal | null> {
-  const blocks = await blocksWithQuestions(eventId);
-  const block = blocks.find((b) => b.id === blockId);
+  let block = (await blocksWithQuestions(eventId)).find((b) => b.id === blockId);
   if (!block) return null;
-  const pair = revealPair(block);
+  let pair = revealPair(block);
   if (!pair) return null;
+  // prima la scelta delle parole più sensate (se già fatta e le risposte non sono cambiate è immediata)
+  await ensureRanks(pair.map((q) => ({ q, topic: block!.title })), operatorId);
+  block = (await blocksWithQuestions(eventId)).find((b) => b.id === blockId)!;
+  pair = revealPair(block)!;
   const results = await questionResults(pair);
   const pre = top(results.get(pair[0].id));
   const post = top(results.get(pair[1].id));
@@ -179,6 +193,7 @@ export async function computeCrownWords(eventId: string, size = 9): Promise<Crow
 /** Prepara la convergenza finale (9 parole → 3 temi) e la salva sull'evento. */
 export async function prepareConvergence(eventId: string, operatorId: string): Promise<Convergence> {
   const ev = await eventById(eventId);
+  await ensureFinalRanks(eventId, operatorId);
   const words = await computeCrownWords(eventId);
   const conv: Convergence = { version: 2, generatedAt: new Date().toISOString(), words, themes: [], note: "", ai: false };
   if (words.length < 3) throw new ConvergenceError("Servono più risposte nelle domande di fine blocco");

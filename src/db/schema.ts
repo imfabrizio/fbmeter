@@ -11,6 +11,7 @@ import {
   uniqueIndex,
   uuid,
 } from "drizzle-orm/pg-core";
+import type { WordRank } from "../lib/words";
 
 /** Operatori (chi accede alla regia). Il pubblico NON è qui: vedi `participants`. */
 export const users = pgTable("users", {
@@ -126,6 +127,8 @@ export const questions = pgTable(
     inSummary: boolean("in_summary").notNull().default(false),
     /** quiz: soluzione mostrata al pubblico */
     revealed: boolean("revealed").notNull().default(false),
+    /** Solo parole: scelta AI (ordine a parità e voci scartate), vedi WordRank. */
+    aiRank: jsonb("ai_rank").$type<WordRank | null>(),
   },
   (t) => [index("questions_block_idx").on(t.blockId, t.position)],
 );

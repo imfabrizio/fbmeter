@@ -184,6 +184,14 @@ function extractJson(text: string): unknown {
 
 async function callModel(t: AiTarget, prompt: string): Promise<string> {
   const { provider, model, key: apiKey } = t;
+  // solo per i test locali (mai in produzione: richiede anche il login di sviluppo)
+  const mock = process.env.AI_MOCK_URL;
+  if (mock && process.env.AUTH_DEV_LOGIN_INSECURE === "1" && process.env.VERCEL !== "1") {
+    const r = await fetch(mock, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ provider, model, key: apiKey, prompt }) });
+    const body = await r.text();
+    if (!r.ok) throw new Error(friendlyError(provider, r.status, body));
+    return body;
+  }
   const signal = AbortSignal.timeout(45_000);
   let res: Response;
   switch (provider) {
@@ -385,4 +393,38 @@ Rispondi SOLO con JSON valido:
     used.add(w.label);
   }
   return { themes: themes.filter((t) => t.words.length), note: typeof parsed.note === "string" ? parsed.note.trim().slice(0, 220) : "" };
+}
+
+/**
+ * Revisione delle parole di una domanda: ordina per rappresentatività (a parità di
+ * persone conta questo ordine) e indica le voci da scartare. Lavora per indici, così
+ * non dipende da come l'AI riscrive le parole.
+ */
+export async function rankWordsAI(
+  t: AiTarget,
+  topic: string,
+  question: string,
+  words: { label: string; count: number }[],
+): Promise<{ order: number[]; discard: number[] }> {
+  const list = words.map((w, i) => `${i}. ${w.label} (${w.count} ${w.count === 1 ? "persona" : "persone"})`).join("\n");
+  const prompt = `Evento tecnico, argomento "${topic}". Alla domanda «${question}» il pubblico ha scritto queste parole (tra parentesi quante persone):
+${list}
+
+Compito:
+1. Ordina TUTTI gli indici dalla parola più rappresentativa del pensiero del pubblico alla meno rappresentativa. Più rappresentativa = esprime un concetto che anche altre persone hanno espresso, magari con parole diverse o affini (es. "MFA", "doppia autenticazione", "OTP"), ed è pertinente all'argomento. A pari merito preferisci parole chiare e specifiche a parole generiche.
+2. Indica gli indici da SCARTARE perché senza senso, scherzosi, offensivi, illeggibili o del tutto fuori tema. Non scartare parole sensate solo perché scritte da una persona sola o perché critiche: anche un parere negativo è un'opinione valida.
+
+Rispondi SOLO con JSON valido:
+{"order":[indici dal più rappresentativo],"discard":[indici da scartare]}`;
+  const parsed = extractJson(await callModel(t, prompt)) as { order?: unknown; discard?: unknown };
+  const idx = (v: unknown) =>
+    (Array.isArray(v) ? v : [])
+      .map((x) => Number(x))
+      .filter((n, i, arr) => Number.isInteger(n) && n >= 0 && n < words.length && arr.indexOf(n) === i);
+  const order = idx(parsed.order);
+  // indici dimenticati dall'AI: in coda, nell'ordine originale
+  for (let i = 0; i < words.length; i++) if (!order.includes(i)) order.push(i);
+  const discard = idx(parsed.discard);
+  // prudenza: mai scartare più di metà delle voci
+  return { order, discard: discard.length > words.length / 2 ? [] : discard };
 }

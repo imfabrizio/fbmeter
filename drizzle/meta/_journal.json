@@ -64,6 +64,13 @@
       "when": 1793796374012,
       "tag": "0008_teaser_revealed",
       "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1795532988508,
+      "tag": "0009_ai_rank",
+      "breakpoints": true
     }
   ]
 }
