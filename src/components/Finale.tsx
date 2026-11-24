@@ -27,24 +27,32 @@ const rowY = (i: number, n: number, gap = 24, base = 52) => base + (i - (n - 1) 
 
 /** Prima a sinistra, dopo a destra, rimaste al centro, linee tra le parole "evolute". */
 export function RevealView({ data }: { data: RevealData }) {
-  const { before, common, after, links } = data;
-  // con parole rimaste: quelle stanno in alto al centro e le colonne scendono, così le linee restano libere
-  const base = common.length ? 64 : 52;
+  const { common, links } = data;
+  const stay = new Set(common.map((w) => w.label));
+  // ogni colonna mostra il suo podio; le rimaste stanno su entrambi i lati (per i dati
+  // preparati con la versione precedente, dove le rimaste erano solo al centro, si aggiungono)
+  const before = [...data.before, ...common.filter((c) => !data.before.some((w) => w.label === c.label))];
+  const after = [...common.filter((c) => !data.after.some((w) => w.label === c.label)), ...data.after];
+  const base = 54;
   const yB = (label: string) => rowY(before.findIndex((w) => w.label === label), before.length, 24, base);
   const yA = (label: string) => rowY(after.findIndex((w) => w.label === label), after.length, 24, base);
-  const drawn = links.filter((l) => before.some((w) => w.label === l.from) && after.some((w) => w.label === l.to));
+  const stays = common.filter((c) => before.some((w) => w.label === c.label) && after.some((w) => w.label === c.label));
+  const evo = links.filter(
+    (l) => !stay.has(l.from) && !stay.has(l.to) && before.some((w) => w.label === l.from) && after.some((w) => w.label === l.to),
+  );
   const tAfter = 0.4 + before.length * 0.35 + 0.6;
-  const tCommon = tAfter + after.length * 0.35 + 0.5;
-  const tLinks = tCommon + (common.length ? 0.9 : 0.2);
+  const tStay = tAfter + after.length * 0.35 + 0.5;
+  const tLinks = tStay + (stays.length ? 0.8 + stays.length * 0.4 : 0.2);
+  const curve = (y1: number, y2: number) => `M 31 ${y1} C 50 ${y1}, 50 ${y2}, 69 ${y2}`;
 
   return (
     <div className="rv" key={JSON.stringify([before, common, after, links])}>
       <div className="rv-head" style={{ left: "16%" }}>
         {data.beforeLabel} <small>{data.beforeRespondents} risposte</small>
       </div>
-      {common.length > 0 && (
-        <div className="rv-head rv-head-center" style={{ left: "50%", animationDelay: `${tCommon}s` }}>
-          {common.length === 1 ? "È rimasta" : "Sono rimaste"}
+      {stays.length > 0 && (
+        <div className="rv-head rv-head-center" style={{ left: "50%", animationDelay: `${tStay}s` }}>
+          {stays.length === 1 ? "È rimasta" : "Sono rimaste"}
         </div>
       )}
       <div className="rv-head" style={{ left: "84%", animationDelay: `${tAfter}s` }}>
@@ -52,40 +60,37 @@ export function RevealView({ data }: { data: RevealData }) {
       </div>
 
       <svg className="rv-lines" viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden>
-        {drawn.map((l, i) => {
-          const y1 = yB(l.from);
-          const y2 = yA(l.to);
-          return (
-            <path
-              key={i}
-              d={`M 31 ${y1} C 50 ${y1}, 50 ${y2}, 69 ${y2}`}
-              style={{ animationDelay: `${tLinks + i * 0.5}s` }}
-            />
-          );
-        })}
+        {stays.map((w, i) => (
+          <path key={`s${i}`} className="stay" d={curve(yB(w.label), yA(w.label))} style={{ animationDelay: `${tStay + i * 0.4}s` }} />
+        ))}
+        {evo.map((l, i) => (
+          <path key={`e${i}`} className="evo" d={curve(yB(l.from), yA(l.to))} style={{ animationDelay: `${tLinks + i * 0.5}s` }} />
+        ))}
       </svg>
 
       {before.map((w, i) => (
-        <div key={w.label} className="rv-word rv-before" style={{ left: "30%", top: `${rowY(i, before.length, 24, base)}%`, animationDelay: `${0.4 + i * 0.35}s` }}>
-          {w.label}
-          <small>{w.count}</small>
-        </div>
-      ))}
-      {common.map((w, i) => (
-        <div key={w.label} className="rv-word rv-common" style={{ left: "50%", top: `${17 + i * 15}%`, animationDelay: `${tCommon + i * 0.3}s` }}>
+        <div
+          key={w.label}
+          className={`rv-word rv-before ${stay.has(w.label) ? "rv-keep" : ""}`}
+          style={{ left: "30%", top: `${rowY(i, before.length, 24, base)}%`, animationDelay: `${0.4 + i * 0.35}s` }}
+        >
           {w.label}
           <small>{w.count}</small>
         </div>
       ))}
       {after.map((w, i) => (
-        <div key={w.label} className="rv-word rv-after" style={{ left: "70%", top: `${rowY(i, after.length, 24, base)}%`, animationDelay: `${tAfter + i * 0.35}s` }}>
+        <div
+          key={w.label}
+          className={`rv-word rv-after ${stay.has(w.label) ? "rv-keep" : ""}`}
+          style={{ left: "70%", top: `${rowY(i, after.length, 24, base)}%`, animationDelay: `${tAfter + i * 0.35}s` }}
+        >
           {w.label}
           <small>{w.count}</small>
         </div>
       ))}
-      {before.length + common.length + after.length === 0 && <p className="rv-empty">Ancora nessuna risposta per il confronto.</p>}
+      {before.length + after.length === 0 && <p className="rv-empty">Ancora nessuna risposta per il confronto.</p>}
       {data.note && (
-        <p className="rv-note" style={{ animationDelay: `${tLinks + drawn.length * 0.5 + 0.4}s` }}>
+        <p className="rv-note" style={{ animationDelay: `${tLinks + evo.length * 0.5 + 0.4}s` }}>
           {data.note}
         </p>
       )}

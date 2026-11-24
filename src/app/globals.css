@@ -636,3 +636,8 @@ details summary { cursor: pointer; font-weight: 600; }
 .pill.discard { border: 1px dashed var(--border); background: transparent; cursor: pointer; text-decoration: line-through; }
 .pill.discard:hover { text-decoration: none; color: var(--accent); border-color: var(--accent); }
 .shared-card { border-style: dashed; }
+
+/* prima/dopo: rimaste su entrambi i lati, unite in oro; evoluzioni AI in azzurro */
+.rv-word.rv-keep { background: #2a2410; color: #ffd166; box-shadow: inset 0 0 0 2px #ffd166; }
+.rv-lines path.evo { stroke: #8fa8ff; stroke-width: 0.35; stroke-dasharray: 1.2 1.2; animation: fadeIn 1s ease both; }
+.rv-lines path.stay { stroke: #ffd166; stroke-width: 0.5; }

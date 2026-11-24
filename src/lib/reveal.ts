@@ -76,16 +76,11 @@ export async function prepareReveal(eventId: string, blockId: string, operatorId
   const pre = top(results.get(pair[0].id));
   const post = top(results.get(pair[1].id));
   const preKeys = new Set(pre.map((w) => w.key));
-  // al centro: le parole nel podio sia prima sia dopo
+  // ogni lato mostra il suo podio completo (3 voci); le parole presenti in entrambi
+  // compaiono su tutti e due i lati, evidenziate e unite da una linea
   const common = post.filter((w) => preKeys.has(w.key));
-  const commonKeys = new Set(common.map((w) => w.key));
-  // ai lati almeno 3 voci: si scorre la classifica completa saltando quelle già mostrate
-  const SIDE = 3;
-  const before = top(results.get(pair[0].id), 999).filter((w) => !commonKeys.has(w.key)).slice(0, SIDE);
-  const beforeKeys = new Set(before.map((w) => w.key));
-  const after = top(results.get(pair[1].id), 999)
-    .filter((w) => !commonKeys.has(w.key) && !beforeKeys.has(w.key))
-    .slice(0, SIDE);
+  const before = pre;
+  const after = post;
 
   const reveal: BlockReveal = {
     preparedAt: new Date().toISOString(),
@@ -101,10 +96,15 @@ export async function prepareReveal(eventId: string, blockId: string, operatorId
     ai: false,
   };
 
-  if (reveal.before.length && reveal.after.length) {
+  if (reveal.before.some((w) => !reveal.common.some((c) => c.key === w.key)) && reveal.after.some((w) => !reveal.common.some((c) => c.key === w.key))) {
     try {
       const { result: r, used } = await withAi(operatorId, (ai) =>
-        generateLinks(ai, block.title, reveal.before, reveal.after),
+        generateLinks(
+          ai,
+          block.title,
+          reveal.before.filter((w) => !reveal.common.some((c) => c.key === w.key)),
+          reveal.after.filter((w) => !reveal.common.some((c) => c.key === w.key)),
+        ),
       );
       reveal.links = r.links;
       reveal.note = r.note;
