@@ -12,32 +12,51 @@ interface Profile {
   endpoint: string | null;
   keyHint: string;
   isDefault: boolean;
+  shared: boolean;
   lastTestOk: boolean | null;
   lastTestAt: string | null;
+}
+
+interface SharedProfile {
+  id: string;
+  label: string;
+  provider: string;
+  model: string;
+  owner: string;
+  lastTestOk: boolean | null;
 }
 
 type Msg = { kind: "ok" | "error"; text: string } | null;
 
 export function AiProfiles({ providers }: { providers: ProviderInfo[] }) {
   const [list, setList] = useState<Profile[] | null>(null);
+  const [shared, setShared] = useState<SharedProfile[]>([]);
   const [editing, setEditing] = useState<string | "new" | null>(null);
 
   async function load() {
-    const r = await fetch("/api/admin/ai-profiles", { cache: "no-store" });
+    const [r, s] = await Promise.all([
+      fetch("/api/admin/ai-profiles", { cache: "no-store" }),
+      fetch("/api/admin/ai-profiles/shared", { cache: "no-store" }),
+    ]);
     const l = (await r.json()) as Profile[];
+    const sh = s.ok ? ((await s.json()) as SharedProfile[]) : [];
     setList(l);
-    return l;
+    setShared(sh);
+    return { l, sh };
   }
   useEffect(() => {
-    void load().then((l) => l.length === 0 && setEditing("new"));
+    void load().then(({ l, sh }) => l.length === 0 && sh.length === 0 && setEditing("new"));
   }, []);
 
   if (!list) return <p className="muted">Caricamento…</p>;
 
   return (
     <div className="stack">
-      {list.length === 0 && editing !== "new" && (
+      {list.length === 0 && editing !== "new" && shared.length === 0 && (
         <div className="alert warn">Nessun profilo AI: le unioni restano manuali e la convergenza non genera i temi.</div>
+      )}
+      {list.length === 0 && shared.length > 0 && (
+        <div className="alert ok">Non hai profili tuoi: userai quelli condivisi qui sotto. Puoi comunque aggiungerne uno.</div>
       )}
       {list.map((p) =>
         editing === p.id ? (
@@ -47,11 +66,35 @@ export function AiProfiles({ providers }: { providers: ProviderInfo[] }) {
         ),
       )}
       {editing === "new" ? (
-        <ProfileForm providers={providers} first={list.length === 0} onDone={async () => { setEditing(null); await load(); }} onCancel={list.length ? () => setEditing(null) : undefined} />
+        <ProfileForm providers={providers} first={list.length === 0} onDone={async () => { setEditing(null); await load(); }} onCancel={list.length || shared.length ? () => setEditing(null) : undefined} />
       ) : (
         <button className="btn" onClick={() => setEditing("new")} disabled={editing !== null} style={{ alignSelf: "flex-start" }}>
           + Aggiungi un profilo AI
         </button>
+      )}
+
+      {shared.length > 0 && (
+        <div className="stack" style={{ marginTop: 16 }}>
+          <h2 style={{ margin: 0, fontSize: "1.1rem" }}>Condivisi da altri operatori</h2>
+          <p className="small muted" style={{ margin: 0 }}>
+            {list.length
+              ? "Fanno da riserva dopo i tuoi profili, nell'ordine."
+              : "Li usi tu, nell'ordine, finché non ne aggiungi uno tuo."}{" "}
+            Consumano i crediti di chi li condivide; la chiave non è visibile.
+          </p>
+          {shared.map((p) => (
+            <div key={p.id} className="card ai-card shared-card">
+              <div className="row" style={{ gap: 8 }}>
+                <b>{p.label}</b>
+                <span className="pill">di {p.owner}</span>
+                {p.lastTestOk === false && <span className="pill bad">✗ ultimo test fallito</span>}
+              </div>
+              <div className="small muted" style={{ marginTop: 4 }}>
+                {providers.find((x) => x.id === p.provider)?.label ?? p.provider} · <code>{p.model}</code>
+              </div>
+            </div>
+          ))}
+        </div>
       )}
     </div>
   );
@@ -87,6 +130,7 @@ function ProfileCard({ p, providers, onEdit, reload }: { p: Profile; providers: 
           <div className="row" style={{ gap: 8 }}>
             <b style={{ fontSize: "1.05rem" }}>{p.label}</b>
             {p.isDefault && <span className="pill accent">Predefinito</span>}
+            {p.shared && <span className="pill ok">Condiviso con tutti</span>}
             {status}
           </div>
           <div className="small muted" style={{ marginTop: 4 }}>
@@ -116,6 +160,25 @@ function ProfileCard({ p, providers, onEdit, reload }: { p: Profile; providers: 
           </button>
           <button className="btn sm" disabled={busy} onClick={onEdit}>
             Modifica
+          </button>
+          <button
+            className="btn sm"
+            disabled={busy}
+            title={p.shared ? "Gli altri operatori non potranno più usarlo" : "Gli altri operatori potranno usarlo senza vedere la chiave"}
+            onClick={() => {
+              if (
+                !p.shared &&
+                !confirm(
+                  `Condividere "${p.label}" con tutti gli operatori?\n\nPotranno usarlo in regia (unioni, prima/dopo, convergenza) consumando i tuoi crediti. La chiave resta nascosta e solo tu puoi modificarlo o eliminarlo.`,
+                )
+              )
+                return;
+              void run(() => postJson(`/api/admin/ai-profiles/${p.id}`, { shared: !p.shared }, "PATCH"), () =>
+                p.shared ? "Non è più condiviso." : "Condiviso con tutti gli operatori.",
+              );
+            }}
+          >
+            {p.shared ? "Smetti di condividere" : "Condividi con tutti"}
           </button>
           <button
             className="btn sm ghost danger"

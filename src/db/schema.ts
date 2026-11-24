@@ -46,6 +46,8 @@ export const aiProfiles = pgTable(
     keyCiphertext: text("key_ciphertext").notNull(),
     keyHint: text("key_hint").notNull(),
     isDefault: boolean("is_default").notNull().default(false),
+    /** Usabile anche dagli altri operatori (senza vedere la chiave), consumando i crediti del proprietario. */
+    shared: boolean("shared").notNull().default(false),
     lastTestOk: boolean("last_test_ok"),
     lastTestAt: timestamp("last_test_at", { withTimezone: true }),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),

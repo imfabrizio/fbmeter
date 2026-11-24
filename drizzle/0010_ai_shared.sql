@@ -1,0 +1,1 @@
+ALTER TABLE "ai_profiles" ADD COLUMN "shared" boolean DEFAULT false NOT NULL;

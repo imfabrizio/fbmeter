@@ -14,7 +14,12 @@ export const PATCH = api(async (req: Request, { params }: Ctx) => {
   const { pid } = await params;
   const p = await profileById(me.id, pid);
   if (!p) throw new HttpError(404, "Profilo non trovato");
-  const body = await readJson<{ label?: string; provider?: string; model?: string; endpoint?: string; apiKey?: string }>(req);
+  const body = await readJson<{ label?: string; provider?: string; model?: string; endpoint?: string; apiKey?: string; shared?: boolean }>(req);
+  // solo condivisione on/off: non tocca il resto
+  if (typeof body.shared === "boolean" && Object.keys(body).length === 1) {
+    await getDb().update(schema.aiProfiles).set({ shared: body.shared, updatedAt: new Date() }).where(eq(schema.aiProfiles.id, p.id));
+    return NextResponse.json({ ok: true });
+  }
   const provider = AI_PROVIDERS.find((x) => x.id === (body.provider ?? p.provider));
   if (!provider) throw new HttpError(400, "Fornitore non valido");
   const apiKey = (body.apiKey ?? "").trim();

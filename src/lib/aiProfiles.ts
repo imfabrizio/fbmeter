@@ -1,4 +1,4 @@
-import { and, asc, desc, eq } from "drizzle-orm";
+import { and, asc, desc, eq, ne } from "drizzle-orm";
 import { getDb, schema } from "@/db";
 import type { AiProvider, AiTarget } from "./ai";
 import { decrypt } from "./crypto";
@@ -43,10 +43,25 @@ function toCreds(p: AiProfileRow): AiCreds | null {
   }
 }
 
-/** Profili utilizzabili, in ordine di tentativo. Con `preferId` quel profilo va per primo. */
+/** Profili condivisi dagli altri operatori, con l'email di chi li condivide. */
+export async function sharedProfiles(userId: string) {
+  return getDb()
+    .select({ profile: schema.aiProfiles, ownerEmail: schema.users.email, ownerName: schema.users.name })
+    .from(schema.aiProfiles)
+    .innerJoin(schema.users, eq(schema.users.id, schema.aiProfiles.userId))
+    .where(and(eq(schema.aiProfiles.shared, true), ne(schema.aiProfiles.userId, userId)))
+    .orderBy(desc(schema.aiProfiles.isDefault), asc(schema.aiProfiles.createdAt));
+}
+
+/**
+ * Profili utilizzabili, in ordine di tentativo: prima i propri (predefinito in testa),
+ * poi quelli condivisi dagli altri operatori. Con `preferId` quel profilo va per primo.
+ */
 export async function aiCandidates(userId: string | null, preferId?: string | null): Promise<AiCreds[]> {
   if (!userId) return [];
-  const rows = await listProfiles(userId);
+  const own = await listProfiles(userId);
+  const shared = (await sharedProfiles(userId)).map((s) => ({ ...s.profile, label: `${s.profile.label} (di ${s.ownerName || s.ownerEmail})` }));
+  const rows = [...own, ...shared];
   if (preferId) rows.sort((a, b) => Number(b.id === preferId) - Number(a.id === preferId));
   return rows.map(toCreds).filter((c): c is AiCreds => !!c);
 }

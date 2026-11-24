@@ -635,3 +635,4 @@ details summary { cursor: pointer; font-weight: 600; }
 .rank-podium small { opacity: 0.7; font-weight: 500; }
 .pill.discard { border: 1px dashed var(--border); background: transparent; cursor: pointer; text-decoration: line-through; }
 .pill.discard:hover { text-decoration: none; color: var(--accent); border-color: var(--accent); }
+.shared-card { border-style: dashed; }

@@ -18,6 +18,7 @@ export function publicProfile(p: typeof schema.aiProfiles.$inferSelect) {
     endpoint: p.endpoint,
     keyHint: p.keyHint,
     isDefault: p.isDefault,
+    shared: p.shared,
     lastTestOk: p.lastTestOk,
     lastTestAt: p.lastTestAt,
     updatedAt: p.updatedAt,
